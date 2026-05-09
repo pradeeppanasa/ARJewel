@@ -223,12 +223,46 @@ with st.sidebar:
 #  Core processing
 # ══════════════════════════════════════════════════════════════════════════════
 
+@st.cache_data(show_spinner=False)
+def _compute_overlay(
+    source_bytes: bytes,
+    cat: str,
+    ear_path: str | None,
+    nec_path: str | None,
+    eff_size: float,
+    size_factor: float,
+    v_off_ear: int,
+    h_off_ear: int,
+    v_off_nec: int,
+    opacity: float,
+    is_pair: bool,
+) -> bytes | None:
+    """Pure function — all inputs explicit so @st.cache_data can hash them."""
+    source_img = Image.open(io.BytesIO(source_bytes))
+    img_rgb    = np.array(source_img.convert("RGB"))
+    landmarks  = detect_landmarks(img_rgb)
+    if landmarks is None:
+        return None
+
+    result = source_img.convert("RGBA")
+
+    if cat in ("Earring", "Both") and ear_path:
+        earring = Image.open(ear_path).convert("RGBA")
+        result  = overlay_earrings(result, earring, landmarks, eff_size,
+                                   v_off_ear, h_off_ear, opacity, is_pair=is_pair)
+
+    if cat in ("Necklace", "Both") and nec_path:
+        necklace = Image.open(nec_path).convert("RGBA")
+        result   = overlay_necklace(result, necklace, landmarks, size_factor, v_off_nec, opacity)
+
+    return pil_to_bytes(result.convert("RGB"))
+
+
 def process_image(source_img: Image.Image) -> tuple[Image.Image | None, str]:
     cat      = st.session_state.active_type
     sel_ear  = st.session_state.selected_earring
     sel_nec  = st.session_state.selected_necklace
 
-    # Validate selection
     if cat == "Earring"  and not sel_ear:
         return None, "Please select an earring from the gallery."
     if cat == "Necklace" and not sel_nec:
@@ -248,29 +282,32 @@ def process_image(source_img: Image.Image) -> tuple[Image.Image | None, str]:
                 )
             return result, "OK"
         except Exception:
-            pass   # silently fall through to local overlay
+            pass
 
-    # ── Local MediaPipe + PIL path ─────────────────────────────────────────────
-    img_rgb   = np.array(source_img.convert("RGB"))
-    landmarks = detect_landmarks(img_rgb)
-    if landmarks is None:
+    # ── Local cached path ──────────────────────────────────────────────────────
+    is_pair  = bool(sel_ear) and Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
+    eff_size = st.session_state.get("_ear_size_factor", size_factor)
+
+    # Resolve nobg paths so cache key is stable (string paths, not dicts)
+    ear_path = None
+    if sel_ear:
+        ear_item = resolve_overlay_image(sel_ear)   # ensures nobg cached to disk
+        ear_path = sel_ear.get("nobg_path") or str(sel_ear["path"])
+    nec_path = None
+    if sel_nec:
+        resolve_overlay_image(sel_nec)
+        nec_path = sel_nec.get("nobg_path") or str(sel_nec["path"])
+
+    result_bytes = _compute_overlay(
+        pil_to_bytes(source_img), cat,
+        ear_path, nec_path,
+        eff_size, size_factor,
+        v_offset_earring, h_offset_earring, v_offset_necklace,
+        opacity, is_pair,
+    )
+    if result_bytes is None:
         return None, "No face detected. Please use a clear, front-facing photo."
-
-    result = source_img.convert("RGBA")
-
-    if cat in ("Earring", "Both") and sel_ear:
-        earring  = resolve_overlay_image(sel_ear)
-        # JPG source = real product photo showing both earrings → split in half
-        is_pair  = Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
-        eff_size = st.session_state.get("_ear_size_factor", size_factor)
-        result   = overlay_earrings(result, earring, landmarks, eff_size,
-                                    v_offset_earring, h_offset_earring, opacity, is_pair=is_pair)
-
-    if cat in ("Necklace", "Both") and sel_nec:
-        necklace = resolve_overlay_image(sel_nec)
-        result   = overlay_necklace(result, necklace, landmarks, size_factor, v_offset_necklace, opacity)
-
-    return result.convert("RGB"), "OK"
+    return Image.open(io.BytesIO(result_bytes)), "OK"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

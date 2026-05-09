@@ -163,7 +163,7 @@ def overlay_necklace(
 ) -> Image.Image:
     necklace = _tight_crop(necklace_img)
 
-    target_w = int(landmarks["face_width"] * 1.10 * size_factor)
+    target_w = int(landmarks["face_width"] * 1.20 * size_factor)
     orig_w, orig_h = necklace.size
     target_h = int(target_w * (orig_h / max(orig_w, 1)))
     necklace = resize_image(necklace, target_w, target_h)
@@ -171,4 +171,7 @@ def overlay_necklace(
 
     nx, ny = landmarks["neck_center"]
     nw, nh = necklace.size
-    return paste_with_alpha(base_img, necklace, (nx - nw // 2, ny + v_offset))
+    x = nx - nw // 2
+    y = ny + v_offset
+    print(f"[necklace] neck_center=({nx},{ny}) size=({nw}x{nh}) paste=({x},{y}) image=({landmarks['image_w']}x{landmarks['image_h']})")
+    return paste_with_alpha(base_img, necklace, (x, y))

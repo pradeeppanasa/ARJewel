@@ -76,7 +76,8 @@ def detect_landmarks(image_rgb: np.ndarray) -> dict | None:
     right_ear = px(RIGHT_EAR_BOUNDARY)
 
     # ── Neck center ────────────────────────────────────────────────────────────
-    neck_center = (chin[0], chin[1] + int(face_height * 0.35))
+    # Necklace: chin bottom + 20px, centred on image width
+    neck_center = (w // 2, chin[1] + 20)
 
     return {
         "left_ear":      left_ear,

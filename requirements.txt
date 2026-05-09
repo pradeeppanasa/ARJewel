@@ -1,0 +1,9 @@
+streamlit>=1.32
+mediapipe>=0.10
+opencv-python>=4.8
+Pillow>=10.0
+numpy>=1.24
+openai>=1.0
+python-dotenv>=1.0
+requests>=2.31
+rembg>=2.0

@@ -5,3 +5,4 @@ __pycache__/
 *.pyd
 .Python
 *.u2net/
+assets/face_landmarker.task

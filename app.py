@@ -314,6 +314,11 @@ def process_image(source_img: Image.Image) -> tuple[Image.Image | None, str]:
 #  Shared result renderer
 # ══════════════════════════════════════════════════════════════════════════════
 
+@st.dialog("Try-On Result", width="large")
+def _show_enlarged(img: Image.Image):
+    st.image(img, use_container_width=True)
+
+
 def show_result(source_img: Image.Image, _download_key: str = "download_result"):
     with st.spinner("Processing…"):
         result, msg = process_image(source_img)
@@ -322,23 +327,15 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         st.error(msg)
         return
 
-    zoom = st.select_slider(
-        "🔍 Zoom",
-        options=[50, 75, 100, 125, 150, 200, 300],
-        value=100,
-        format_func=lambda x: f"{x}%",
-        key=f"zoom_{_download_key}",
-    )
-    base_w = result.width
-    display_w = max(100, int(base_w * zoom / 100))
-
     col_in, col_out = st.columns(2)
     with col_in:
         st.subheader("Original")
         st.image(source_img, use_container_width=True)
     with col_out:
         st.subheader("Try-On Result")
-        st.image(result, width=display_w)
+        st.image(result, use_container_width=True)
+        if st.button("🔍 Enlarge", key=f"enlarge_{_download_key}", use_container_width=True):
+            _show_enlarged(result)
 
     st.download_button(
         label="⬇️ Download Result",

@@ -106,7 +106,7 @@ with st.sidebar:
     # ── jewellery type toggle  ─────────────────────────────────────────────────
     use_flux = st.toggle(
         "AI Overlay (Flux Kontext Pro)",
-        value=False,              # off by default — enable manually when needed
+        value=bool(_bfl_key()),   # on by default when API key is present
         disabled=not _bfl_key(),
         help="Uses Flux Kontext Pro for photorealistic AI jewellery overlay (requires BFL_API_KEY).",
     )

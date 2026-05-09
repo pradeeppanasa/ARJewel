@@ -96,7 +96,7 @@ def overlay_with_flux(
     proxies = {k: v for k, v in proxies.items() if v}  # drop None values
 
     resp = requests.post(_SUBMIT_URL, headers=headers, json=payload,
-                         timeout=45, proxies=proxies or None)
+                         timeout=(8, 90), proxies=proxies or None)  # 8s connect, 90s read
     resp.raise_for_status()
     job_id = resp.json()["id"]
 

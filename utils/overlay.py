@@ -100,12 +100,13 @@ def overlay_earring(
     earring = _soften_edges(earring, radius=1.5)
 
     # 3 — position: landmark 234/454 is at the face-ear boundary.
-    # Place earring fully outside the face contour — right/left edge at landmark x.
+    # 25% of earring width overlaps inward — looks naturally attached to earlobe.
     ew, eh = earring.size
+    overlap = int(ew * 0.25)
     if side == "left":
-        x = ear_lobe[0] - ew - h_offset
+        x = ear_lobe[0] - ew + overlap - h_offset
     else:
-        x = ear_lobe[0] + h_offset
+        x = ear_lobe[0] - overlap + h_offset
     y = ear_lobe[1] + _EARLOBE_OFFSET_PX + v_offset
 
     # Fix 2 — drop shadow: blurred black silhouette offset 2px down for depth

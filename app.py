@@ -247,8 +247,8 @@ def process_image(source_img: Image.Image) -> tuple[Image.Image | None, str]:
                     source_img, ref_img, cat, design_name, _bfl_key()
                 )
             return result, "OK"
-        except Exception as exc:
-            st.warning(f"Flux unavailable ({type(exc).__name__}) — using local overlay.")
+        except Exception:
+            pass   # silently fall through to local overlay
 
     # ── Local MediaPipe + PIL path ─────────────────────────────────────────────
     img_rgb   = np.array(source_img.convert("RGB"))

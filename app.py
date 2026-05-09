@@ -106,7 +106,7 @@ with st.sidebar:
     # ── jewellery type toggle  ─────────────────────────────────────────────────
     use_flux = st.toggle(
         "AI Overlay (Flux Kontext Pro)",
-        value=bool(_bfl_key()),   # on by default when API key is present
+        value=False,              # off by default — enable manually when needed
         disabled=not _bfl_key(),
         help="Uses Flux Kontext Pro for photorealistic AI jewellery overlay (requires BFL_API_KEY).",
     )
@@ -335,7 +335,7 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
     col_in, col_out = st.columns(2)
     with col_in:
         st.subheader("Original")
-        st.image(source_img, width=display_w)
+        st.image(source_img, use_container_width=True)
     with col_out:
         st.subheader("Try-On Result")
         st.image(result, width=display_w)

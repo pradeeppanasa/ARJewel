@@ -70,46 +70,31 @@ def overlay_earring(
     opacity: float = 1.0,
     side: str = "left",
 ) -> Image.Image:
-    """
-    Place one earring at the earlobe.
-    Steps:
-      1. tight-crop to actual jewellery bounding box (getbbox)
-      2. normalise width to 17.6 % of face_width × size_factor
-      3. position: inner edge of earring at landmark x (ears are outside face contour),
-         y = landmark + 15 px + v_offset
-    """
-    # 1 — crop to actual content
+    # 1 — tight-crop transparent padding (getbbox)
     earring = _tight_crop(earring_img)
 
-    # 2 — normalise to consistent size relative to face
-    target_w = int(face_width * 0.176 * size_factor)
+    # 2 — size: 9% of face width × size_factor
+    target_w = int(face_width * 0.09 * size_factor)
     orig_w, orig_h = earring.size
     target_h = int(target_w * (orig_h / max(orig_w, 1)))
     earring = resize_image(earring, target_w, target_h)
 
-    # Slight tilt correction (dampened so earrings stay mostly upright)
-    dx = ear_lobe[0] - ear_top[0]
-    dy = ear_lobe[1] - ear_top[1]
-    angle = math.degrees(math.atan2(dx, dy)) * 0.3
+    # 5 — flip right earring so it mirrors left naturally
     if side == "right":
-        angle = -angle
-    earring = rotate_image(earring, angle)
-    earring = apply_opacity(earring, opacity)
+        earring = earring.transpose(Image.FLIP_LEFT_RIGHT)
 
-    # Fix 1 — soft edge blending: blur alpha border so edges melt into skin
+    earring = apply_opacity(earring, opacity)
     earring = _soften_edges(earring, radius=1.5)
 
-    # 3 — position: landmark 234/454 is at the face-ear boundary.
-    # 25% of earring width overlaps inward — looks naturally attached to earlobe.
+    # 2 — position: centre on landmark x, 10 px below landmark y
     ew, eh = earring.size
-    overlap = int(ew * 0.25)
     if side == "left":
-        x = ear_lobe[0] - ew + overlap - h_offset
+        x = ear_lobe[0] - ew // 2 - h_offset
     else:
-        x = ear_lobe[0] - overlap + h_offset
-    y = ear_lobe[1] + _EARLOBE_OFFSET_PX + v_offset
+        x = ear_lobe[0] - ew // 2 + h_offset
+    y = ear_lobe[1] + 10 + v_offset
 
-    # Fix 2 — drop shadow: blurred black silhouette offset 2px down for depth
+    # subtle drop shadow
     _r, _g, _b, alpha = earring.split()
     shadow_alpha = alpha.filter(ImageFilter.GaussianBlur(radius=3))
     shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.30))
@@ -151,7 +136,7 @@ def overlay_earrings(
         left_img, right_img = _split_pair(earring)
     else:
         left_img  = earring
-        right_img = earring.transpose(Image.FLIP_LEFT_RIGHT)
+        right_img = earring   # flip handled inside overlay_earring for side="right"
 
     result = overlay_earring(
         base_img, left_img,

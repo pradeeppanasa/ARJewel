@@ -80,6 +80,7 @@ st.markdown("""
 section[data-testid="stMain"] {
     overflow-y: auto !important;
     height: 100vh !important;
+    overflow-anchor: none !important;
 }
 /* Always-visible custom scrollbar (Windows 11 hides OS scrollbars) */
 section[data-testid="stMain"]::-webkit-scrollbar       { width: 8px; }
@@ -94,6 +95,20 @@ section[data-testid="stSidebar"] > div:first-child {
 }
 section[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar { width: 5px; }
 section[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+
+/* Prevent layout shift: images keep their space while loading */
+[data-testid="stImage"] img {
+    display: block;
+    min-height: 40px;
+}
+
+/* Prevent column widths from shifting on rerender */
+[data-testid="stHorizontalBlock"] {
+    align-items: flex-start !important;
+}
+
+/* Stop Streamlit's internal scroll-to-top on rerun */
+html { scroll-behavior: auto !important; }
 
 .block-container { padding-bottom: 4rem; }
 </style>

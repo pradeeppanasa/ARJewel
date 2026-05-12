@@ -6,3 +6,4 @@ __pycache__/
 .Python
 *.u2net/
 assets/face_landmarker.task
+.venv/

@@ -8,3 +8,4 @@ python-dotenv>=1.0
 requests>=2.31
 rembg>=2.0
 onnxruntime>=1.16
+streamlit-image-coordinates>=0.4

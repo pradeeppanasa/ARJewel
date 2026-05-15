@@ -110,11 +110,16 @@ section[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb { ba
 /* Prevent layout shift and white flash while images load */
 [data-testid="stImage"] {
     background-color: #f5f5f5;
+    min-height: 40px;
 }
 [data-testid="stImage"] img {
     display: block;
     min-height: 40px;
-    content-visibility: auto;
+}
+
+/* Keep result columns at a stable height so rerenders don't shift layout */
+[data-testid="stHorizontalBlock"] > div {
+    min-height: 200px;
 }
 
 /* Prevent column widths from shifting on rerender */
@@ -480,9 +485,12 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         if st.button("🔍 Enlarge", key=f"enlarge_{_download_key}", use_container_width=True):
             _show_enlarged(result)
 
+    dl_key = key + "_dl"
+    if dl_key not in st.session_state:
+        st.session_state[dl_key] = pil_to_bytes(result)
     st.download_button(
         label="⬇️ Download Result",
-        data=pil_to_bytes(result),
+        data=st.session_state[dl_key],
         file_name="jewellery_tryon.png",
         mime="image/png",
         use_container_width=True,
@@ -495,7 +503,7 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         landmarks = _detect_cached(src_bytes)
         if landmarks:
             cat = st.session_state.active_type
-            with st.expander("🎯 Click on photo to reposition jewellery", expanded=True):
+            with st.expander("🎯 Click on photo to reposition jewellery", expanded=False):
                 if cat == "Both":
                     pos_mode = st.radio(
                         "What to reposition:",

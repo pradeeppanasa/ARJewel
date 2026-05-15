@@ -68,6 +68,17 @@ def resolve_overlay_image(item: dict) -> Image.Image:
     return Image.open(source).convert("RGBA")
 
 
+@st.cache_data(show_spinner=False)
+def _load_gallery_preview(path: str) -> bytes:
+    """Load and composite a jewellery thumbnail once; cached across reruns."""
+    img = Image.open(path).convert("RGBA")
+    bg  = Image.new("RGBA", img.size, (245, 245, 245, 255))
+    bg.paste(img, mask=img)
+    buf = io.BytesIO()
+    bg.convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Page config
 # ══════════════════════════════════════════════════════════════════════════════
@@ -96,10 +107,14 @@ section[data-testid="stSidebar"] > div:first-child {
 section[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar { width: 5px; }
 section[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
 
-/* Prevent layout shift: images keep their space while loading */
+/* Prevent layout shift and white flash while images load */
+[data-testid="stImage"] {
+    background-color: #f5f5f5;
+}
 [data-testid="stImage"] img {
     display: block;
     min-height: 40px;
+    content-visibility: auto;
 }
 
 /* Prevent column widths from shifting on rerender */
@@ -193,11 +208,7 @@ with st.sidebar:
             c1, c2 = st.columns(2)
             for col, item in zip([c1, c2], slice_[row_start:row_start+2]):
                 with col:
-                    img = Image.open(item["path"]).convert("RGBA")
-                    # white preview background so transparent PNG shows nicely
-                    bg  = Image.new("RGBA", img.size, (245, 245, 245, 255))
-                    bg.paste(img, mask=img)
-                    st.image(bg.convert("RGB"), use_container_width=True)
+                    st.image(_load_gallery_preview(item["path"]), use_container_width=True)
                     selected = st.session_state[sel_k]
                     is_sel   = selected is not None and selected["id"] == item["id"]
                     btn_label = "✅ Selected" if is_sel else "Select"
@@ -414,6 +425,20 @@ def _draw_position_markers(img: Image.Image, landmarks: dict, cat: str,
     return marked
 
 
+@st.cache_data(show_spinner=False)
+def _cached_markers(source_bytes: bytes, cat: str,
+                    v_off_ear: int, h_off_ear: int,
+                    v_off_nec: int, h_off_nec: int) -> bytes | None:
+    """Cached version of position-marker drawing; avoids redraw on every rerun."""
+    landmarks = _detect_cached(source_bytes)
+    if landmarks is None:
+        return None
+    source_img = Image.open(io.BytesIO(source_bytes))
+    marked = _draw_position_markers(source_img, landmarks, cat,
+                                    v_off_ear, h_off_ear, v_off_nec, h_off_nec)
+    return pil_to_bytes(marked)
+
+
 def _result_session_key() -> str:
     # Use pre-stored image hash — avoids expensive pil_to_bytes on every rerun
     img_hash = st.session_state.get("source_image_hash", "no_img")
@@ -486,12 +511,17 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
                 else:
                     st.caption("🔵 Click where you want the **necklace** centre to sit.")
 
-                marked = _draw_position_markers(
-                    source_img, landmarks, pos_mode,
+                marked_bytes = _cached_markers(
+                    src_bytes, pos_mode,
                     v_offset_earring, h_offset_earring,
                     v_offset_necklace, h_offset_necklace,
                 )
-                coords = streamlit_image_coordinates(marked, key=f"click_{_download_key}_{pos_mode}")
+                coords = None
+                if marked_bytes:
+                    coords = streamlit_image_coordinates(
+                        Image.open(io.BytesIO(marked_bytes)),
+                        key=f"click_{_download_key}_{pos_mode}",
+                    )
 
                 if coords:
                     S = 0.4   # sensitivity — each click moves 40% of remaining gap

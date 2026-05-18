@@ -508,9 +508,16 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
     )
 
     # ── Click-to-position ─────────────────────────────────────────────────────
+    # The component is only instantiated when the checkbox is ON so it never
+    # fires its initial {"x":0,"y":0} value silently and causes an infinite
+    # rerun loop.  Coordinate deduplication is a second guard.
     landmarks = _detect_cached(src_bytes)
     if landmarks:
-        with st.expander("🎯 Click on photo to reposition jewellery", expanded=False):
+        show_repo = st.checkbox(
+            "🎯 Adjust jewellery position by clicking on the photo",
+            key=f"show_repo_{_download_key}",
+        )
+        if show_repo:
             if cat == "Both":
                 pos_mode = st.radio(
                     "What to reposition:",
@@ -538,7 +545,11 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
                     key=f"click_{_download_key}_{pos_mode}",
                 )
 
-            if coords:
+            # Only act on genuinely new coordinates — prevents the initial
+            # {"x":0,"y":0} value (or any repeated value) from looping.
+            seen_key = f"_coords_seen_{_download_key}_{pos_mode}"
+            if coords and coords != st.session_state.get(seen_key):
+                st.session_state[seen_key] = coords
                 S = 0.4
                 if pos_mode == "Earring":
                     rx, ry = landmarks["right_ear"]

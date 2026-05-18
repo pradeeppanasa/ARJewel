@@ -609,6 +609,26 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
 #  Video processing
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _reencode_h264(raw_path: str) -> str:
+    """Re-encode a raw mp4v file to H.264 (browser-compatible). Returns output path."""
+    import subprocess
+    out_tf = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    out_path = out_tf.name
+    out_tf.close()
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-i", raw_path,
+         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+         "-movflags", "+faststart",
+         out_path],
+        capture_output=True,
+    )
+    if r.returncode == 0:
+        os.unlink(raw_path)
+        return out_path
+    os.unlink(out_path)
+    return raw_path   # fall back to original if ffmpeg unavailable
+
+
 def _process_video(
     video_bytes: bytes,
     cat: str,
@@ -688,6 +708,8 @@ def _process_video(
     cap.release()
     writer.release()
     os.unlink(in_path)
+
+    out_path = _reencode_h264(out_path)   # mp4v → H.264 for browser playback
 
     with open(out_path, "rb") as f:
         out_bytes = f.read()
@@ -781,6 +803,7 @@ with tab3:
             for _ in range(75):   # 3 seconds at 25 fps
                 writer.write(frame_bgr)
             writer.release()
+            tmp_path = _reencode_h264(tmp_path)   # mp4v → H.264 for browser playback
             with open(tmp_path, "rb") as f:
                 st.download_button(
                     "⬇️ Download sample_test.mp4",

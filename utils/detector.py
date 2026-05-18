@@ -38,13 +38,21 @@ def detect_landmarks(image_rgb: np.ndarray) -> dict | None:
     from mediapipe.tasks import python as mp_python
     from mediapipe.tasks.python import vision as mp_vision
 
+    # Upscale tiny images so MediaPipe has enough pixels to find the face.
+    h, w = image_rgb.shape[:2]
+    if w < 300:
+        import cv2
+        scale = 300 / w
+        image_rgb = cv2.resize(image_rgb, (300, int(h * scale)),
+                               interpolation=cv2.INTER_LINEAR)
+
     base_opts = mp_python.BaseOptions(model_asset_path=str(MODEL_PATH))
     opts = mp_vision.FaceLandmarkerOptions(
         base_options=base_opts,
         num_faces=1,
-        min_face_detection_confidence=0.5,
-        min_face_presence_confidence=0.5,
-        min_tracking_confidence=0.5,
+        min_face_detection_confidence=0.3,
+        min_face_presence_confidence=0.3,
+        min_tracking_confidence=0.3,
     )
 
     with mp_vision.FaceLandmarker.create_from_options(opts) as detector:

@@ -342,58 +342,17 @@ def _compute_overlay(
     return pil_to_bytes(result.convert("RGB"))
 
 
-def process_image(source_img: Image.Image) -> tuple[Image.Image | None, str]:
-    cat      = st.session_state.active_type
-    sel_ear  = st.session_state.selected_earring
-    sel_nec  = st.session_state.selected_necklace
-
-    if cat == "Earring"  and not sel_ear:
-        return None, "Please select an earring from the gallery."
-    if cat == "Necklace" and not sel_nec:
-        return None, "Please select a necklace from the gallery."
-    if cat == "Both"     and not (sel_ear and sel_nec):
-        return None, "Please select both an earring and a necklace from the gallery."
-
-    design_name = (sel_ear["name"] if sel_ear else "") or (sel_nec["name"] if sel_nec else "")
-
-    # ── Flux path ──────────────────────────────────────────────────────────────
-    if use_flux and _bfl_key():
-        ref_img = resolve_overlay_image(sel_ear if sel_ear else sel_nec)
-        try:
-            with st.spinner("Sending to Flux Kontext Pro… (30–60 s)"):
-                result = overlay_with_flux(
-                    source_img, ref_img, cat, design_name, _bfl_key()
-                )
-            return result, "OK"
-        except Exception:
-            pass
-
-    # ── Local cached path ──────────────────────────────────────────────────────
-    is_pair  = bool(sel_ear) and Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
-    eff_size = st.session_state.get("_ear_size_factor", size_factor)
-
-    # Resolve nobg paths so cache key is stable (string paths, not dicts)
+def _overlay_paths(sel_ear, sel_nec):
+    """Resolve nobg paths for both jewellery items; return (ear_path, nec_path)."""
     ear_path = None
     if sel_ear:
-        ear_item = resolve_overlay_image(sel_ear)   # ensures nobg cached to disk
+        resolve_overlay_image(sel_ear)
         ear_path = sel_ear.get("nobg_path") or str(sel_ear["path"])
     nec_path = None
     if sel_nec:
         resolve_overlay_image(sel_nec)
         nec_path = sel_nec.get("nobg_path") or str(sel_nec["path"])
-
-    src_bytes    = st.session_state.get("source_image_bytes") or pil_to_bytes(source_img)
-    result_bytes = _compute_overlay(
-        src_bytes, cat,
-        ear_path, nec_path,
-        eff_size, size_factor,
-        v_offset_earring, h_offset_earring,
-        v_offset_necklace, h_offset_necklace,
-        opacity, is_pair,
-    )
-    if result_bytes is None:
-        return None, "No face detected. Please use a clear, front-facing photo."
-    return Image.open(io.BytesIO(result_bytes)), "OK"
+    return ear_path, nec_path
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -465,32 +424,83 @@ def _result_session_key() -> str:
 
 
 def show_result(source_img: Image.Image, _download_key: str = "download_result"):
-    key = _result_session_key()
-    if key not in st.session_state:
-        with st.spinner("Processing…"):
-            st.session_state[key] = process_image(source_img)
-    result, msg = st.session_state[key]
+    cat     = st.session_state.active_type
+    sel_ear = st.session_state.selected_earring
+    sel_nec = st.session_state.selected_necklace
 
-    if result is None:
-        st.error(msg)
+    if cat == "Earring"  and not sel_ear:
+        st.info("Please select an earring from the gallery.")
+        return
+    if cat == "Necklace" and not sel_nec:
+        st.info("Please select a necklace from the gallery.")
+        return
+    if cat == "Both"     and not (sel_ear and sel_nec):
+        st.info("Please select both an earring and a necklace from the gallery.")
+        return
+
+    src_bytes = st.session_state.get("source_image_bytes")
+    if not src_bytes:
+        return
+
+    result_bytes: bytes | None = None
+
+    # ── Flux path (slow — always cache result in session state) ───────────────
+    if use_flux and _bfl_key():
+        flux_key = _result_session_key()
+        if flux_key not in st.session_state:
+            design_name = (sel_ear["name"] if sel_ear else "") or (sel_nec["name"] if sel_nec else "")
+            ref_img = resolve_overlay_image(sel_ear if sel_ear else sel_nec)
+            try:
+                with st.spinner("Sending to Flux Kontext Pro… (30–60 s)"):
+                    r = overlay_with_flux(source_img, ref_img, cat, design_name, _bfl_key())
+                st.session_state[flux_key] = pil_to_bytes(r.convert("RGB"))
+            except Exception:
+                st.session_state[flux_key] = None
+        result_bytes = st.session_state.get(flux_key)
+
+    # ── Local path — call @st.cache_data directly; no session-state layer ─────
+    if result_bytes is None:
+        is_pair  = bool(sel_ear) and Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
+        eff_size = st.session_state.get("_ear_size_factor", size_factor)
+        ear_path, nec_path = _overlay_paths(sel_ear, sel_nec)
+
+        def _run():
+            return _compute_overlay(
+                src_bytes, cat, ear_path, nec_path, eff_size, size_factor,
+                v_offset_earring, h_offset_earring,
+                v_offset_necklace, h_offset_necklace,
+                opacity, is_pair,
+            )
+
+        # Spinner only on the very first compute for this image+jewellery combo.
+        # Slider tweaks hit @st.cache_data instantly — no spinner flash.
+        first_key = (f"_ok_{st.session_state.source_image_hash}_{cat}"
+                     f"_{sel_ear['id'] if sel_ear else ''}_{sel_nec['id'] if sel_nec else ''}")
+        if first_key not in st.session_state:
+            with st.spinner("Processing…"):
+                result_bytes = _run()
+            if result_bytes:
+                st.session_state[first_key] = True
+        else:
+            result_bytes = _run()
+
+    if result_bytes is None:
+        st.error("No face detected. Please use a clear, front-facing photo.")
         return
 
     col_in, col_out = st.columns(2)
     with col_in:
         st.subheader("Original")
-        st.image(source_img, use_container_width=True)
+        st.image(src_bytes, use_container_width=True)
     with col_out:
         st.subheader("Try-On Result")
-        st.image(result, use_container_width=True)
+        st.image(result_bytes, use_container_width=True)
         if st.button("🔍 Enlarge", key=f"enlarge_{_download_key}", use_container_width=True):
-            _show_enlarged(result)
+            _show_enlarged(Image.open(io.BytesIO(result_bytes)))
 
-    dl_key = key + "_dl"
-    if dl_key not in st.session_state:
-        st.session_state[dl_key] = pil_to_bytes(result)
     st.download_button(
         label="⬇️ Download Result",
-        data=st.session_state[dl_key],
+        data=result_bytes,
         file_name="jewellery_tryon.png",
         mime="image/png",
         use_container_width=True,
@@ -498,58 +508,55 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
     )
 
     # ── Click-to-position ─────────────────────────────────────────────────────
-    src_bytes = st.session_state.get("source_image_bytes")
-    if src_bytes:
-        landmarks = _detect_cached(src_bytes)
-        if landmarks:
-            cat = st.session_state.active_type
-            with st.expander("🎯 Click on photo to reposition jewellery", expanded=False):
-                if cat == "Both":
-                    pos_mode = st.radio(
-                        "What to reposition:",
-                        ["Earring", "Necklace"],
-                        horizontal=True,
-                        key=f"pos_mode_{_download_key}",
-                    )
-                else:
-                    pos_mode = cat
-
-                if pos_mode == "Earring":
-                    st.caption("🟡 Click where you want the **earring** to sit — both sides update together.")
-                else:
-                    st.caption("🔵 Click where you want the **necklace** centre to sit.")
-
-                marked_bytes = _cached_markers(
-                    src_bytes, pos_mode,
-                    v_offset_earring, h_offset_earring,
-                    v_offset_necklace, h_offset_necklace,
+    landmarks = _detect_cached(src_bytes)
+    if landmarks:
+        with st.expander("🎯 Click on photo to reposition jewellery", expanded=False):
+            if cat == "Both":
+                pos_mode = st.radio(
+                    "What to reposition:",
+                    ["Earring", "Necklace"],
+                    horizontal=True,
+                    key=f"pos_mode_{_download_key}",
                 )
-                coords = None
-                if marked_bytes:
-                    coords = streamlit_image_coordinates(
-                        Image.open(io.BytesIO(marked_bytes)),
-                        key=f"click_{_download_key}_{pos_mode}",
-                    )
+            else:
+                pos_mode = cat
 
-                if coords:
-                    S = 0.4   # sensitivity — each click moves 40% of remaining gap
-                    if pos_mode == "Earring":
-                        rx, ry = landmarks["right_ear"]
-                        cur_v  = st.session_state.get("v_off_ear", 0)
-                        cur_h  = st.session_state.get("h_off_ear", 0)
-                        new_v  = int(cur_v + (int(coords["y"]) - ry - 10 - cur_v) * S)
-                        new_h  = int(cur_h + (int(coords["x"]) - rx       - cur_h) * S)
-                        st.session_state["_pending_v_off_ear"] = max(-60,  min(60,  new_v))
-                        st.session_state["_pending_h_off_ear"] = max(-60,  min(60,  new_h))
-                    else:
-                        nx, ny = landmarks["neck_center"]
-                        cur_v  = st.session_state.get("v_off_nec", 0)
-                        cur_h  = st.session_state.get("h_off_nec", 0)
-                        new_v  = int(cur_v + (int(coords["y"]) - ny - cur_v) * S)
-                        new_h  = int(cur_h + (int(coords["x"]) - nx - cur_h) * S)
-                        st.session_state["_pending_v_off_nec"] = max(-60,  min(300, new_v))
-                        st.session_state["_pending_h_off_nec"] = max(-200, min(200, new_h))
-                    st.rerun()
+            if pos_mode == "Earring":
+                st.caption("🟡 Click where you want the **earring** to sit — both sides update together.")
+            else:
+                st.caption("🔵 Click where you want the **necklace** centre to sit.")
+
+            marked_bytes = _cached_markers(
+                src_bytes, pos_mode,
+                v_offset_earring, h_offset_earring,
+                v_offset_necklace, h_offset_necklace,
+            )
+            coords = None
+            if marked_bytes:
+                coords = streamlit_image_coordinates(
+                    Image.open(io.BytesIO(marked_bytes)),
+                    key=f"click_{_download_key}_{pos_mode}",
+                )
+
+            if coords:
+                S = 0.4
+                if pos_mode == "Earring":
+                    rx, ry = landmarks["right_ear"]
+                    cur_v  = st.session_state.get("v_off_ear", 0)
+                    cur_h  = st.session_state.get("h_off_ear", 0)
+                    new_v  = int(cur_v + (int(coords["y"]) - ry - 10 - cur_v) * S)
+                    new_h  = int(cur_h + (int(coords["x"]) - rx       - cur_h) * S)
+                    st.session_state["_pending_v_off_ear"] = max(-60,  min(60,  new_v))
+                    st.session_state["_pending_h_off_ear"] = max(-60,  min(60,  new_h))
+                else:
+                    nx, ny = landmarks["neck_center"]
+                    cur_v  = st.session_state.get("v_off_nec", 0)
+                    cur_h  = st.session_state.get("h_off_nec", 0)
+                    new_v  = int(cur_v + (int(coords["y"]) - ny - cur_v) * S)
+                    new_h  = int(cur_h + (int(coords["x"]) - nx - cur_h) * S)
+                    st.session_state["_pending_v_off_nec"] = max(-60,  min(300, new_v))
+                    st.session_state["_pending_h_off_nec"] = max(-200, min(200, new_h))
+                st.rerun()
 
     # ── GPT-4o auto recommendation ────────────────────────────────────────────
     st.divider()
@@ -559,18 +566,14 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         st.info("Set AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY in .env to enable.")
         return
 
-    sel_ear = st.session_state.selected_earring
-    sel_nec = st.session_state.selected_necklace
     desc    = " + ".join(filter(None, [sel_ear["name"] if sel_ear else None,
                                        sel_nec["name"] if sel_nec else None]))
-
-    # Cache key: selected jewellery combo — avoids re-calling on every Streamlit rerun
     rec_key = f"rec_{desc}"
     if rec_key not in st.session_state:
         with st.spinner("GPT-4o is analysing your try-on…"):
             try:
                 st.session_state[rec_key] = get_recommendation(
-                    result, st.session_state.active_type, desc
+                    Image.open(io.BytesIO(result_bytes)), st.session_state.active_type, desc
                 )
             except Exception as exc:
                 st.session_state[rec_key] = f"⚠️ Could not get recommendation: {exc}"

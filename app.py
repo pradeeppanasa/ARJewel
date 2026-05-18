@@ -560,7 +560,7 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
             seen_key = f"_coords_seen_{_download_key}_{pos_mode}"
             if coords and coords != st.session_state.get(seen_key):
                 st.session_state[seen_key] = coords
-                S = 0.4
+                S = 1.0
                 if pos_mode == "Earring":
                     rx, ry = landmarks["right_ear"]
                     cur_v  = st.session_state.get("v_off_ear", 0)

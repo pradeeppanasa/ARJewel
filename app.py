@@ -745,7 +745,7 @@ def _video_result_key(video_hash: str) -> str:
 st.title("💍 Jewellery AR Try-On")
 st.caption("Powered by MediaPipe · Flux Kontext Pro · Azure OpenAI GPT-4o")
 
-tab1, tab2, tab3 = st.tabs(["📁 Upload Photo", "📷 Camera Capture", "🎬 Video Try-On"])
+tab1, tab2, tab3, tab4 = st.tabs(["📁 Upload Photo", "📷 Camera Capture", "🎬 Video Try-On", "📡 Live AR"])
 
 with tab1:
     uploaded = st.file_uploader(
@@ -910,3 +910,70 @@ with tab3:
                 st.session_state.video_result_bytes = None
                 st.session_state.video_result_key   = ""
                 st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Tab 4 — Live AR (WebRTC real-time camera with head-pose-aware jewellery)
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab4:
+    st.subheader("📡 Live AR Try-On")
+    st.caption(
+        "Your webcam streams live — jewellery follows your face in real time. "
+        "Turn your head left/right or tilt and the pieces warp to match."
+    )
+
+    try:
+        from streamlit_webrtc import webrtc_streamer, RTCConfiguration
+        from utils.live_ar import JewelleryARProcessor
+        _webrtc_ok = True
+    except ImportError:
+        _webrtc_ok = False
+        st.error(
+            "streamlit-webrtc is not installed. "
+            "Add `streamlit-webrtc` and `aiortc` to requirements.txt and redeploy."
+        )
+
+    if _webrtc_ok:
+        # Resolve jewellery paths for the processor
+        _live_ear_path = None
+        _live_nec_path = None
+        if sel_ear:
+            resolve_overlay_image(sel_ear)
+            _live_ear_path = sel_ear.get("nobg_path") or str(sel_ear["path"])
+        if sel_nec:
+            resolve_overlay_image(sel_nec)
+            _live_nec_path = sel_nec.get("nobg_path") or str(sel_nec["path"])
+
+        if not (_live_ear_path or _live_nec_path):
+            st.info("Select jewellery from the sidebar gallery, then start the camera below.")
+
+        RTC_CONFIG = RTCConfiguration({
+            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        })
+
+        ctx = webrtc_streamer(
+            key="live-ar",
+            video_processor_factory=JewelleryARProcessor,
+            rtc_configuration=RTC_CONFIG,
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True,
+        )
+
+        if ctx.video_processor:
+            _is_pair = bool(sel_ear) and Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
+            with ctx.video_processor._lock:
+                ctx.video_processor.category      = category
+                ctx.video_processor.earring_path  = _live_ear_path
+                ctx.video_processor.necklace_path = _live_nec_path
+                ctx.video_processor.size_factor   = ear_size_factor
+                ctx.video_processor.v_offset_ear  = v_offset_earring
+                ctx.video_processor.h_offset_ear  = h_offset_earring
+                ctx.video_processor.v_offset_nec  = v_offset_necklace
+                ctx.video_processor.h_offset_nec  = h_offset_necklace
+                ctx.video_processor.opacity       = opacity
+                ctx.video_processor.is_pair       = _is_pair
+
+        st.info(
+            "**Tips:** Use the Fine-tune sliders in the sidebar to adjust size and position "
+            "while the camera is live. Works best in Chrome with good lighting."
+        )

@@ -5,4 +5,4 @@ libegl1
 libglib2.0-0
 ffmpeg
 libopus0
-libvpx7
+libvpx6

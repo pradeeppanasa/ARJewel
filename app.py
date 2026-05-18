@@ -299,15 +299,11 @@ with st.sidebar:
 #  Core processing
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(show_spinner=False, ttl=None)
+@st.cache_data(show_spinner=False)
 def _detect_cached(source_bytes: bytes) -> dict | None:
     """Cache face landmarks separately so slider changes skip re-detection."""
-    try:
-        img_rgb = np.array(Image.open(io.BytesIO(source_bytes)).convert("RGB"))
-        return detect_landmarks(img_rgb)
-    except Exception as exc:
-        st.warning(f"Face detection error: {exc}")
-        return None
+    img_rgb = np.array(Image.open(io.BytesIO(source_bytes)).convert("RGB"))
+    return detect_landmarks(img_rgb)
 
 
 @st.cache_data(show_spinner=False)

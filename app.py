@@ -469,7 +469,7 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         # Storing in session state means the exact same bytes object is served
         # on every re-render — React sees an unchanged data-URL and skips DOM
         # update, eliminating the right-column flicker.
-        res_key = _result_session_key()
+        res_key = "local_" + _result_session_key()
         if res_key not in st.session_state:
             rb = _compute_overlay(
                 src_bytes, cat, ear_path, nec_path, eff_size, size_factor,

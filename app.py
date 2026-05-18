@@ -458,31 +458,28 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
                 st.session_state[flux_key] = None
         result_bytes = st.session_state.get(flux_key)
 
-    # ── Local path — call @st.cache_data directly; no session-state layer ─────
+    # ── Local path ────────────────────────────────────────────────────────────
     if result_bytes is None:
         is_pair  = bool(sel_ear) and Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
         eff_size = st.session_state.get("_ear_size_factor", size_factor)
         ear_path, nec_path = _overlay_paths(sel_ear, sel_nec)
 
-        def _run():
-            return _compute_overlay(
+        # Cache result bytes in session state keyed by ALL parameters.
+        # @st.cache_data returns cache hits instantly so no spinner is needed.
+        # Storing in session state means the exact same bytes object is served
+        # on every re-render — React sees an unchanged data-URL and skips DOM
+        # update, eliminating the right-column flicker.
+        res_key = _result_session_key()
+        if res_key not in st.session_state:
+            rb = _compute_overlay(
                 src_bytes, cat, ear_path, nec_path, eff_size, size_factor,
                 v_offset_earring, h_offset_earring,
                 v_offset_necklace, h_offset_necklace,
                 opacity, is_pair,
             )
-
-        # Spinner only on the very first compute for this image+jewellery combo.
-        # Slider tweaks hit @st.cache_data instantly — no spinner flash.
-        first_key = (f"_ok_{st.session_state.source_image_hash}_{cat}"
-                     f"_{sel_ear['id'] if sel_ear else ''}_{sel_nec['id'] if sel_nec else ''}")
-        if first_key not in st.session_state:
-            with st.spinner("Processing…"):
-                result_bytes = _run()
-            if result_bytes:
-                st.session_state[first_key] = True
-        else:
-            result_bytes = _run()
+            if rb:
+                st.session_state[res_key] = rb
+        result_bytes = st.session_state.get(res_key)
 
     if result_bytes is None:
         st.error("No face detected. Please use a clear, front-facing photo.")

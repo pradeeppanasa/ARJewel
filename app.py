@@ -767,6 +767,33 @@ with tab3:
     st.subheader("🎬 Video Try-On")
     st.caption("Upload a video and the selected jewellery will be overlaid on every frame.")
 
+    # ── Sample video generator ────────────────────────────────────────────────
+    src_bytes_for_vid = st.session_state.get("source_image_bytes")
+    if src_bytes_for_vid:
+        if st.button("🎞️ Generate sample test video from your photo", use_container_width=True):
+            import cv2, tempfile, numpy as np
+            frame = np.array(Image.open(io.BytesIO(src_bytes_for_vid)).convert("RGB"))
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            h, w = frame_bgr.shape[:2]
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
+                tmp_path = tf.name
+            writer = cv2.VideoWriter(tmp_path, cv2.VideoWriter_fourcc(*"mp4v"), 25, (w, h))
+            for _ in range(75):   # 3 seconds at 25 fps
+                writer.write(frame_bgr)
+            writer.release()
+            with open(tmp_path, "rb") as f:
+                st.download_button(
+                    "⬇️ Download sample_test.mp4",
+                    data=f.read(),
+                    file_name="sample_test.mp4",
+                    mime="video/mp4",
+                    use_container_width=True,
+                )
+    else:
+        st.info("Upload a photo first (Upload Photo tab), then use this button to generate a test video.")
+
+    st.divider()
+
     uploaded_video = st.file_uploader(
         "Upload a video (MP4 / MOV / AVI)",
         type=["mp4", "mov", "avi"],

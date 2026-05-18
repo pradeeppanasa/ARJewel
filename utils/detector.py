@@ -44,22 +44,20 @@ def detect_landmarks(image_rgb: np.ndarray) -> dict | None:
     # Upscale small images using PIL (no cv2 dependency here).
     # MediaPipe returns normalised (0-1) coords so landmarks always map back
     # to orig_h / orig_w regardless of what size was used for detection.
-    if orig_w < 640:
-        scale     = 640 / orig_w
-        pil_img   = _PILImage.fromarray(image_rgb).resize(
-            (640, int(orig_h * scale)), _PILImage.LANCZOS
-        )
-        detect_img = np.ascontiguousarray(np.array(pil_img), dtype=np.uint8)
-    else:
-        detect_img = np.ascontiguousarray(image_rgb, dtype=np.uint8)
+    target_w   = max(orig_w, 1024)
+    scale      = target_w / orig_w
+    pil_img    = _PILImage.fromarray(image_rgb).resize(
+        (target_w, int(orig_h * scale)), _PILImage.LANCZOS
+    )
+    detect_img = np.ascontiguousarray(np.array(pil_img), dtype=np.uint8)
 
     base_opts = mp_python.BaseOptions(model_asset_path=str(MODEL_PATH))
     opts = mp_vision.FaceLandmarkerOptions(
         base_options=base_opts,
         num_faces=1,
-        min_face_detection_confidence=0.2,
-        min_face_presence_confidence=0.2,
-        min_tracking_confidence=0.2,
+        min_face_detection_confidence=0.05,
+        min_face_presence_confidence=0.05,
+        min_tracking_confidence=0.05,
     )
 
     with mp_vision.FaceLandmarker.create_from_options(opts) as detector:

@@ -300,8 +300,8 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(show_spinner=False)
-def _detect_cached(source_bytes: bytes) -> dict | None:
-    """Cache face landmarks separately so slider changes skip re-detection."""
+def _detect_cached(source_bytes: bytes, _v: int = 5) -> dict | None:
+    """Cache face landmarks. _v bumped to bust stale None results on redeploy."""
     img_rgb = np.array(Image.open(io.BytesIO(source_bytes)).convert("RGB"))
     return detect_landmarks(img_rgb)
 
@@ -482,7 +482,12 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         result_bytes = st.session_state.get(res_key)
 
     if result_bytes is None:
-        st.error("No face detected. Please use a clear, front-facing photo.")
+        img_dbg = Image.open(io.BytesIO(src_bytes))
+        w_dbg, h_dbg = img_dbg.size
+        st.error(
+            f"No face detected in {w_dbg}×{h_dbg}px image. "
+            "Please use a clear, front-facing photo (minimum ~300px wide)."
+        )
         return
 
     col_in, col_out = st.columns(2)

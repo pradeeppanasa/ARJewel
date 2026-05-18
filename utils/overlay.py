@@ -53,6 +53,19 @@ def _soften_edges(img: Image.Image, radius: float = 1.5) -> Image.Image:
     return Image.merge("RGBA", (r, g, b, a))
 
 
+def _add_specular_highlight(img: Image.Image, intensity: float = 0.22) -> Image.Image:
+    """Add a top-to-bottom white gradient highlight for a 3D sheen effect."""
+    img = img.convert("RGBA")
+    arr = np.array(img, dtype=np.float32)
+    h = arr.shape[0]
+    grad = np.clip(1.0 - np.arange(h) / max(h * 0.6, 1), 0.0, 1.0).reshape(h, 1)
+    shine = grad * intensity * arr[:, :, 3]
+    arr[:, :, 0] = np.clip(arr[:, :, 0] + shine, 0, 255)
+    arr[:, :, 1] = np.clip(arr[:, :, 1] + shine, 0, 255)
+    arr[:, :, 2] = np.clip(arr[:, :, 2] + shine, 0, 255)
+    return Image.fromarray(arr.astype(np.uint8), "RGBA")
+
+
 # ─── Earring placement ────────────────────────────────────────────────────────
 
 _EARLOBE_OFFSET_PX = 15   # px below MediaPipe tragion landmark
@@ -85,8 +98,9 @@ def overlay_earring(
 
     earring = apply_opacity(earring, opacity)
     earring = _soften_edges(earring, radius=1.5)
+    earring = _add_specular_highlight(earring, intensity=0.22)
 
-    # 2 — position: centre on landmark x, 10 px below landmark y
+    # position: centre on landmark x, 10 px below landmark y
     ew, eh = earring.size
     if side == "left":
         x = ear_lobe[0] - ew // 2 - h_offset
@@ -94,13 +108,13 @@ def overlay_earring(
         x = ear_lobe[0] - ew // 2 + h_offset
     y = ear_lobe[1] + 10 + v_offset
 
-    # subtle drop shadow
+    # drop shadow — larger blur + offset for 3D depth
     _r, _g, _b, alpha = earring.split()
-    shadow_alpha = alpha.filter(ImageFilter.GaussianBlur(radius=3))
-    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.30))
+    shadow_alpha = alpha.filter(ImageFilter.GaussianBlur(radius=5))
+    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.45))
     shadow = Image.new("RGBA", earring.size, (0, 0, 0, 0))
     shadow.putalpha(shadow_alpha)
-    base_img = paste_with_alpha(base_img, shadow, (x + 2, y + 2))
+    base_img = paste_with_alpha(base_img, shadow, (x + 3, y + 3))
 
     return paste_with_alpha(base_img, earring, (x, y))
 
@@ -169,9 +183,20 @@ def overlay_necklace(
     target_h = int(target_w * (orig_h / max(orig_w, 1)))
     necklace = resize_image(necklace, target_w, target_h)
     necklace = apply_opacity(necklace, opacity)
+    necklace = _soften_edges(necklace, radius=1.5)
+    necklace = _add_specular_highlight(necklace, intensity=0.18)
 
     nx, ny = landmarks["neck_center"]
     nw, nh = necklace.size
     x = nx - nw // 2 + h_offset
     y = ny + v_offset
+
+    # drop shadow for depth
+    _r, _g, _b, nec_alpha = necklace.split()
+    shadow_alpha = nec_alpha.filter(ImageFilter.GaussianBlur(radius=6))
+    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.40))
+    shadow = Image.new("RGBA", necklace.size, (0, 0, 0, 0))
+    shadow.putalpha(shadow_alpha)
+    base_img = paste_with_alpha(base_img, shadow, (x + 4, y + 4))
+
     return paste_with_alpha(base_img, necklace, (x, y))

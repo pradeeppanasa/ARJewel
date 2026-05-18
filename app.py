@@ -843,8 +843,14 @@ with tab3:
         vkey = _video_result_key(video_hash) if ready else ""
 
         # ── Process button (shown when no valid cached result) ─────────────────
+        has_stale = (
+            bool(st.session_state.video_result_bytes)
+            and st.session_state.video_result_key != vkey
+        )
         if ready and not (st.session_state.video_result_bytes
                           and st.session_state.video_result_key == vkey):
+            if has_stale:
+                st.info("⚙️ Fine-tune settings changed — click **Process Video** to apply.")
             if st.button("▶️ Process Video", key="btn_process_video",
                          use_container_width=True,
                          help="Apply selected jewellery to every frame"):
@@ -884,7 +890,7 @@ with tab3:
         col_orig, col_result = st.columns(2)
         with col_orig:
             st.markdown("**Original**")
-            st.video(uploaded_video)
+            st.video(uploaded_video.getvalue())
 
         if st.session_state.video_result_bytes and st.session_state.video_result_key == vkey:
             with col_result:

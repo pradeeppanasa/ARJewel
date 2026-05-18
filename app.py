@@ -130,6 +130,10 @@ section[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb { ba
 /* Stop Streamlit's internal scroll-to-top on rerun */
 html { scroll-behavior: auto !important; }
 
+/* Reserve space for the recommendation box so page height is stable
+   whether the GPT-4o spinner or the success text is showing */
+[data-testid="stAlert"], [data-testid="stNotification"] { min-height: 80px; }
+
 .block-container { padding-bottom: 4rem; }
 </style>
 """, unsafe_allow_html=True)
@@ -219,10 +223,6 @@ with st.sidebar:
                     btn_label = "✅ Selected" if is_sel else "Select"
                     if st.button(btn_label, key=f"btn_{cat_key}_{item['id']}", use_container_width=True):
                         st.session_state[sel_k] = item
-                        # Clear recommendation cache so it refreshes for new jewellery
-                        for k in list(st.session_state.keys()):
-                            if k.startswith("rec_"):
-                                del st.session_state[k]
                         st.rerun()
                     st.caption(item["name"])
 
@@ -729,6 +729,8 @@ with tab1:
             st.session_state.source_image       = img
             st.session_state.source_image_bytes = pil_to_bytes(img)
             st.session_state.source_image_hash  = new_hash
+            for k in [k for k in st.session_state if k.startswith("rec_")]:
+                del st.session_state[k]
 
     if st.session_state.source_image is not None:
         show_result(st.session_state.source_image, _download_key="download_upload")
@@ -744,6 +746,8 @@ with tab2:
             st.session_state.source_image       = img
             st.session_state.source_image_bytes = pil_to_bytes(img)
             st.session_state.source_image_hash  = new_hash
+            for k in [k for k in st.session_state if k.startswith("rec_")]:
+                del st.session_state[k]
 
     if st.session_state.source_image is not None:
         show_result(st.session_state.source_image, _download_key="download_camera")

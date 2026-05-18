@@ -87,11 +87,16 @@ st.set_page_config(page_title="Jewellery AR Try-On", page_icon="💍", layout="w
 
 st.markdown("""
 <style>
-/* Main area: fixed viewport height + scrollable = right-side scrollbar */
+/* Main area: fixed viewport height + always-visible scrollbar.
+   overflow-y:scroll (not auto) keeps the scrollbar track permanently in the
+   layout so its 8 px width never appears/disappears — that change was stealing
+   column width and forcing use_container_width images to resize on every
+   content-height change (spinner ↔ text), causing the visible image flicker. */
 section[data-testid="stMain"] {
-    overflow-y: auto !important;
+    overflow-y: scroll !important;
     height: 100vh !important;
     overflow-anchor: none !important;
+    scrollbar-gutter: stable;
 }
 /* Always-visible custom scrollbar (Windows 11 hides OS scrollbars) */
 section[data-testid="stMain"]::-webkit-scrollbar       { width: 8px; }
@@ -101,8 +106,9 @@ section[data-testid="stMain"]::-webkit-scrollbar-thumb:hover { background: #777;
 
 /* Sidebar: scrollable for long content (Fine-tune below gallery) */
 section[data-testid="stSidebar"] > div:first-child {
-    overflow-y: auto !important;
+    overflow-y: scroll !important;
     height: 100vh !important;
+    scrollbar-gutter: stable;
 }
 section[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar { width: 5px; }
 section[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }

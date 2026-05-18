@@ -16,17 +16,22 @@ def remove_background(source: Path, force: bool = False) -> Path:
     """
     Remove background from `source` image.
     Returns path to the transparent PNG (cached after first run).
+    Falls back to the original file if the rembg model download fails.
     """
     out = get_nobg_path(source)
     if out.exists() and not force:
         return out
 
-    from rembg import remove
-
-    img    = Image.open(source).convert("RGBA")
-    result = remove(img)
-    result.save(out, format="PNG")
-    return out
+    try:
+        from rembg import remove
+        img    = Image.open(source).convert("RGBA")
+        result = remove(img)
+        result.save(out, format="PNG")
+        return out
+    except Exception:
+        # Model download failed (e.g. broken pipe on HuggingFace Spaces).
+        # Return the original file so the overlay still works, just with background.
+        return source
 
 
 def ensure_nobg(source: Path) -> Path:

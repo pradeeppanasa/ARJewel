@@ -61,7 +61,10 @@ def resolve_overlay_image(item: dict) -> Image.Image:
     source = Path(item["path"])
     if source.suffix.lower() in (".jpg", ".jpeg"):
         with st.spinner(f"Removing background from {item['name']} (first use only)…"):
-            nobg_path = ensure_nobg(source)
+            try:
+                nobg_path = ensure_nobg(source)
+            except Exception:
+                nobg_path = source  # rembg model unavailable; use original
         item["nobg_path"] = str(nobg_path)
         return Image.open(nobg_path).convert("RGBA")
 

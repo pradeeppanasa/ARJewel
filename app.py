@@ -465,18 +465,20 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         ear_path, nec_path = _overlay_paths(sel_ear, sel_nec)
 
         # Cache result bytes in session state keyed by ALL parameters.
-        # @st.cache_data returns cache hits instantly so no spinner is needed.
         # Storing in session state means the exact same bytes object is served
         # on every re-render — React sees an unchanged data-URL and skips DOM
-        # update, eliminating the right-column flicker.
+        # update, eliminating the right-column flicker on subsequent renders.
+        # Spinner only fires on the first compute (key absent); cached renders
+        # skip it entirely, so there is no spinner flash on slider tweaks.
         res_key = "local_" + _result_session_key()
         if res_key not in st.session_state:
-            rb = _compute_overlay(
-                src_bytes, cat, ear_path, nec_path, eff_size, size_factor,
-                v_offset_earring, h_offset_earring,
-                v_offset_necklace, h_offset_necklace,
-                opacity, is_pair,
-            )
+            with st.spinner("Applying jewellery…"):
+                rb = _compute_overlay(
+                    src_bytes, cat, ear_path, nec_path, eff_size, size_factor,
+                    v_offset_earring, h_offset_earring,
+                    v_offset_necklace, h_offset_necklace,
+                    opacity, is_pair,
+                )
             if rb:
                 st.session_state[res_key] = rb
         result_bytes = st.session_state.get(res_key)

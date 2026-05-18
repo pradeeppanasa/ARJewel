@@ -38,13 +38,16 @@ def detect_landmarks(image_rgb: np.ndarray) -> dict | None:
     from mediapipe.tasks import python as mp_python
     from mediapipe.tasks.python import vision as mp_vision
 
-    # Upscale tiny images so MediaPipe has enough pixels to find the face.
-    h, w = image_rgb.shape[:2]
-    if w < 300:
+    orig_h, orig_w = image_rgb.shape[:2]
+
+    # Upscale small images for reliable detection.
+    # Landmarks are normalized (0-1) so they correctly map back to orig coords.
+    detect_img = image_rgb
+    if orig_w < 640:
         import cv2
-        scale = 300 / w
-        image_rgb = cv2.resize(image_rgb, (300, int(h * scale)),
-                               interpolation=cv2.INTER_LINEAR)
+        scale      = 640 / orig_w
+        detect_img = cv2.resize(image_rgb, (640, int(orig_h * scale)),
+                                interpolation=cv2.INTER_LINEAR)
 
     base_opts = mp_python.BaseOptions(model_asset_path=str(MODEL_PATH))
     opts = mp_vision.FaceLandmarkerOptions(
@@ -56,13 +59,14 @@ def detect_landmarks(image_rgb: np.ndarray) -> dict | None:
     )
 
     with mp_vision.FaceLandmarker.create_from_options(opts) as detector:
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=detect_img)
         result   = detector.detect(mp_image)
 
     if not result.face_landmarks:
         return None
 
-    h, w = image_rgb.shape[:2]
+    # Always use original dimensions — MediaPipe returns normalized (0-1) coords
+    h, w = orig_h, orig_w
     lm = result.face_landmarks[0]
 
     def px(idx):

@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import streamlit as st
 from dotenv import load_dotenv
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 load_dotenv()
@@ -722,7 +722,7 @@ with tab1:
     if uploaded:
         new_hash = hashlib.md5(uploaded.getvalue()).hexdigest()[:10]
         if new_hash != st.session_state.source_image_hash:
-            img = Image.open(uploaded).convert("RGBA")
+            img = ImageOps.exif_transpose(Image.open(uploaded)).convert("RGBA")
             st.session_state.source_image       = img
             st.session_state.source_image_bytes = pil_to_bytes(img)
             st.session_state.source_image_hash  = new_hash
@@ -737,7 +737,7 @@ with tab2:
     if camera_img:
         new_hash = hashlib.md5(camera_img.getvalue()).hexdigest()[:10]
         if new_hash != st.session_state.source_image_hash:
-            img = Image.open(camera_img).convert("RGBA")
+            img = ImageOps.exif_transpose(Image.open(camera_img)).convert("RGBA")
             st.session_state.source_image       = img
             st.session_state.source_image_bytes = pil_to_bytes(img)
             st.session_state.source_image_hash  = new_hash

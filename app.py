@@ -9,8 +9,10 @@ Stack:
   • Azure OpenAI GPT-4o — jewellery style recommendation
 """
 
+import base64
 import hashlib
 import io
+import json
 import os
 import sys
 import tempfile
@@ -1028,73 +1030,164 @@ with tab3:
                 st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Tab 4 — Camera Try-On  (instant overlay on every snap)
+#  Tab 4 — 360° Try-On  (3D spin viewer + 3-angle camera capture)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _thumb_b64(path: str) -> str:
+    return base64.b64encode(_load_gallery_preview(path)).decode()
+
+
 with tab4:
-    st.subheader("📸 Camera Try-On")
+    st.subheader("🔮 360° Try-On")
     st.caption(
-        "Snap a photo and the jewellery is applied instantly. "
-        "Take as many shots as you like — each one updates the result."
+        "Spin the jewellery in 3D below, then capture three angles "
+        "— turn left, face forward, turn right — to see a full 360° look."
     )
 
-    _cam_cat     = st.session_state.get("active_type", "Earring")
-    _cam_sel_ear = st.session_state.get("selected_earring")
-    _cam_sel_nec = st.session_state.get("selected_necklace")
-    _cam_ready   = (
-        (_cam_cat == "Earring"  and _cam_sel_ear) or
-        (_cam_cat == "Necklace" and _cam_sel_nec) or
-        (_cam_cat == "Both"     and _cam_sel_ear and _cam_sel_nec)
+    _t4_cat     = st.session_state.get("active_type", "Earring")
+    _t4_sel_ear = st.session_state.get("selected_earring")
+    _t4_sel_nec = st.session_state.get("selected_necklace")
+    _t4_ready   = (
+        (_t4_cat == "Earring"  and _t4_sel_ear) or
+        (_t4_cat == "Necklace" and _t4_sel_nec) or
+        (_t4_cat == "Both"     and _t4_sel_ear and _t4_sel_nec)
     )
 
-    if not _cam_ready:
-        st.info("Select jewellery from the gallery above, then take a photo below.")
+    if not _t4_ready:
+        st.info("Select jewellery from the gallery above to see the 3D preview.")
+    else:
+        # ── 3D interactive spin viewer ────────────────────────────────────────
+        _viewer_items = []
+        if _t4_sel_ear:
+            _viewer_items.append({"label": _t4_sel_ear["name"],
+                                  "src": "data:image/jpeg;base64," + _thumb_b64(_t4_sel_ear["path"])})
+        if _t4_sel_nec:
+            _viewer_items.append({"label": _t4_sel_nec["name"],
+                                  "src": "data:image/jpeg;base64," + _thumb_b64(_t4_sel_nec["path"])})
 
-    _snap = st.camera_input("Take a photo", key="cam_snap", label_visibility="collapsed")
+        _viewer_html = """<!DOCTYPE html>
+<html><head><style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:14px 20px;background:#111;font-family:sans-serif;
+       display:flex;flex-direction:column;align-items:center;gap:10px;}
+  .row{display:flex;gap:36px;justify-content:center;flex-wrap:wrap;}
+  .card{display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .lbl{color:#FFD700;font-size:13px;font-weight:700;letter-spacing:.3px;}
+  .wrap{width:180px;height:180px;cursor:grab;border-radius:14px;
+        overflow:hidden;background:#1c1c1c;border:1px solid #333;}
+  canvas{display:block;width:180px;height:180px;}
+  .hint{color:#555;font-size:11px;}
+</style></head>
+<body>
+<div class="row" id="row"></div>
+<p class="hint">Drag left / right to spin &nbsp;·&nbsp; Releases to auto-rotate</p>
+<script>
+const ITEMS=""" + json.dumps(_viewer_items) + """;
+const row=document.getElementById('row');
 
-    if _snap and _cam_ready:
-        _cam_img   = ImageOps.exif_transpose(Image.open(_snap)).convert("RGBA")
-        _cam_bytes = pil_to_bytes(_cam_img)
+ITEMS.forEach(item=>{
+  const card=document.createElement('div'); card.className='card';
+  const lbl=document.createElement('p');   lbl.className='lbl'; lbl.textContent=item.label;
+  const wrap=document.createElement('div');wrap.className='wrap';
+  const cvs=document.createElement('canvas'); cvs.width=cvs.height=180;
+  wrap.appendChild(cvs); card.appendChild(lbl); card.appendChild(wrap);
+  row.appendChild(card);
 
-        _cam_sf      = st.session_state.get("global_size_factor", 1.0)
-        _cam_eff     = st.session_state.get("_ear_size_factor", _cam_sf)
-        _cam_opacity = st.session_state.get("global_opacity", 1.0)
-        _cam_ear_p, _cam_nec_p = _overlay_paths(_cam_sel_ear, _cam_sel_nec)
-        _cam_pair = (
-            bool(_cam_sel_ear)
-            and Path(_cam_sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
+  const img=new Image();
+  img.onload=()=>initSpin(cvs,img,wrap);
+  img.src=item.src;
+});
+
+function initSpin(cvs,img,wrap){
+  const ctx=cvs.getContext('2d');
+  let angle=0,drag=false,lx=0,timer;
+
+  function render(){
+    ctx.clearRect(0,0,180,180);
+    const r=angle*Math.PI/180;
+    const sx=Math.cos(r);
+    const br=0.42+0.58*Math.abs(sx);
+    ctx.save();
+    ctx.translate(90,90); ctx.scale(Math.abs(sx),1); ctx.translate(-90,-90);
+    ctx.filter='brightness('+br+')';
+    ctx.drawImage(img,0,0,180,180);
+    ctx.restore();
+    requestAnimationFrame(render);
+  }
+
+  const startAuto=()=>{ timer=setInterval(()=>{if(!drag)angle+=0.55;},16); };
+  const stopAuto =()=>{ clearInterval(timer); };
+
+  wrap.addEventListener('mousedown', e=>{drag=true;lx=e.clientX;wrap.style.cursor='grabbing';stopAuto();});
+  document.addEventListener('mousemove',e=>{if(drag){angle+=(e.clientX-lx)*0.9;lx=e.clientX;}});
+  document.addEventListener('mouseup',  ()=>{drag=false;wrap.style.cursor='grab';startAuto();});
+  wrap.addEventListener('touchstart',e=>{drag=true;lx=e.touches[0].clientX;stopAuto();},{passive:true});
+  document.addEventListener('touchmove',e=>{if(drag){angle+=(e.touches[0].clientX-lx)*0.9;lx=e.touches[0].clientX;}},{passive:true});
+  document.addEventListener('touchend',()=>{drag=false;startAuto();});
+
+  startAuto(); render();
+}
+</script></body></html>"""
+
+        st.components.v1.html(_viewer_html, height=270)
+
+        # ── 3-angle camera try-on ─────────────────────────────────────────────
+        st.divider()
+        st.markdown("#### 📷 3-Angle Try-On")
+        st.caption(
+            "Take one photo for each angle — the jewellery is overlaid instantly on each. "
+            "Together they show how it looks across a full 360° turn."
         )
 
-        with st.spinner("Applying jewellery…"):
-            _cam_result = _compute_overlay(
-                _cam_bytes, _cam_cat,
-                _cam_ear_p, _cam_nec_p,
-                _cam_eff, _cam_sf,
-                st.session_state.get("v_off_ear", 0),
-                st.session_state.get("h_off_ear", 0),
-                st.session_state.get("v_off_nec", 0),
-                st.session_state.get("h_off_nec", 0),
-                _cam_opacity, _cam_pair,
-            )
+        _angle_defs = [
+            ("◀ Turn left",    "t4_left"),
+            ("😊 Face forward", "t4_fwd"),
+            ("Turn right ▶",   "t4_right"),
+        ]
+        _angle_snaps = []
+        _cols3 = st.columns(3)
+        for col, (label, key) in zip(_cols3, _angle_defs):
+            with col:
+                st.markdown(f"**{label}**")
+                _angle_snaps.append(
+                    st.camera_input("", key=key, label_visibility="collapsed")
+                )
 
-        if _cam_result:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.subheader("Original")
-                st.image(_cam_bytes, use_container_width=True)
-            with c2:
-                st.subheader("Try-On Result")
-                st.image(_cam_result, use_container_width=True)
-            st.download_button(
-                "⬇️ Download",
-                data=_cam_result,
-                file_name="camera_tryon.png",
-                mime="image/png",
-                use_container_width=True,
-                key="dl_cam_result",
-            )
-        else:
-            st.error(
-                "No face detected in the photo. "
-                "Please use a clear front-facing shot with good lighting."
-            )
+        _active = [(lbl, snap) for (lbl, _), snap in zip(_angle_defs, _angle_snaps) if snap]
+        if _active:
+            st.markdown("##### Results")
+            _t4_sf   = st.session_state.get("global_size_factor", 1.0)
+            _t4_eff  = st.session_state.get("_ear_size_factor", _t4_sf)
+            _t4_op   = st.session_state.get("global_opacity", 1.0)
+            _t4_voe  = st.session_state.get("v_off_ear", 0)
+            _t4_hoe  = st.session_state.get("h_off_ear", 0)
+            _t4_von  = st.session_state.get("v_off_nec", 0)
+            _t4_hon  = st.session_state.get("h_off_nec", 0)
+            _t4_ep, _t4_np = _overlay_paths(_t4_sel_ear, _t4_sel_nec)
+            _t4_pair = (bool(_t4_sel_ear) and
+                        Path(_t4_sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg"))
+
+            _rcols = st.columns(len(_active))
+            for col, (lbl, snap) in zip(_rcols, _active):
+                with col:
+                    _im  = ImageOps.exif_transpose(Image.open(snap)).convert("RGBA")
+                    _src = pil_to_bytes(_im)
+                    with st.spinner(f"{lbl}…"):
+                        _res = _compute_overlay(
+                            _src, _t4_cat, _t4_ep, _t4_np,
+                            _t4_eff, _t4_sf,
+                            _t4_voe, _t4_hoe, _t4_von, _t4_hon,
+                            _t4_op, _t4_pair,
+                        )
+                    if _res:
+                        st.markdown(f"**{lbl}**")
+                        st.image(_res, use_container_width=True)
+                        st.download_button(
+                            "⬇️",
+                            data=_res,
+                            file_name=f"tryon_{lbl.replace(' ','_')}.png",
+                            mime="image/png",
+                            key=f"dl_t4_{lbl}",
+                        )
+                    else:
+                        st.warning("No face detected.")

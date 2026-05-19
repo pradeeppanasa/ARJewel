@@ -1028,73 +1028,73 @@ with tab3:
                 st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Tab 4 — Live AR (WebRTC real-time camera with head-pose-aware jewellery)
+#  Tab 4 — Camera Try-On  (instant overlay on every snap)
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab4:
-    st.subheader("📡 Live AR Try-On")
+    st.subheader("📸 Camera Try-On")
     st.caption(
-        "Your webcam streams live — jewellery follows your face in real time. "
-        "Turn your head left/right or tilt and the pieces warp to match."
+        "Snap a photo and the jewellery is applied instantly. "
+        "Take as many shots as you like — each one updates the result."
     )
 
-    try:
-        from streamlit_webrtc import webrtc_streamer, RTCConfiguration
-        from utils.live_ar import JewelleryARProcessor
-        _webrtc_ok = True
-    except ImportError:
-        _webrtc_ok = False
-        st.error(
-            "streamlit-webrtc is not installed. "
-            "Add `streamlit-webrtc` and `aiortc` to requirements.txt and redeploy."
+    _cam_cat     = st.session_state.get("active_type", "Earring")
+    _cam_sel_ear = st.session_state.get("selected_earring")
+    _cam_sel_nec = st.session_state.get("selected_necklace")
+    _cam_ready   = (
+        (_cam_cat == "Earring"  and _cam_sel_ear) or
+        (_cam_cat == "Necklace" and _cam_sel_nec) or
+        (_cam_cat == "Both"     and _cam_sel_ear and _cam_sel_nec)
+    )
+
+    if not _cam_ready:
+        st.info("Select jewellery from the gallery above, then take a photo below.")
+
+    _snap = st.camera_input("Take a photo", key="cam_snap", label_visibility="collapsed")
+
+    if _snap and _cam_ready:
+        _cam_img   = ImageOps.exif_transpose(Image.open(_snap)).convert("RGBA")
+        _cam_bytes = pil_to_bytes(_cam_img)
+
+        _cam_sf      = st.session_state.get("global_size_factor", 1.0)
+        _cam_eff     = st.session_state.get("_ear_size_factor", _cam_sf)
+        _cam_opacity = st.session_state.get("global_opacity", 1.0)
+        _cam_ear_p, _cam_nec_p = _overlay_paths(_cam_sel_ear, _cam_sel_nec)
+        _cam_pair = (
+            bool(_cam_sel_ear)
+            and Path(_cam_sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
         )
 
-    if _webrtc_ok:
-        # Resolve jewellery paths for the processor
-        _live_sel_ear  = st.session_state.get("selected_earring")
-        _live_sel_nec  = st.session_state.get("selected_necklace")
-        _live_ear_path = None
-        _live_nec_path = None
-        if _live_sel_ear:
-            resolve_overlay_image(_live_sel_ear)
-            _live_ear_path = _live_sel_ear.get("nobg_path") or str(_live_sel_ear["path"])
-        if _live_sel_nec:
-            resolve_overlay_image(_live_sel_nec)
-            _live_nec_path = _live_sel_nec.get("nobg_path") or str(_live_sel_nec["path"])
-
-        if not (_live_ear_path or _live_nec_path):
-            st.info("Select jewellery from the gallery above, then start the camera below.")
-
-        RTC_CONFIG = RTCConfiguration({
-            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        })
-
-        ctx = webrtc_streamer(
-            key="live-ar",
-            video_processor_factory=JewelleryARProcessor,
-            rtc_configuration=RTC_CONFIG,
-            media_stream_constraints={"video": True, "audio": False},
-            async_processing=True,
-        )
-
-        if ctx.video_processor:
-            _is_pair = (
-                bool(_live_sel_ear)
-                and Path(_live_sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
+        with st.spinner("Applying jewellery…"):
+            _cam_result = _compute_overlay(
+                _cam_bytes, _cam_cat,
+                _cam_ear_p, _cam_nec_p,
+                _cam_eff, _cam_sf,
+                st.session_state.get("v_off_ear", 0),
+                st.session_state.get("h_off_ear", 0),
+                st.session_state.get("v_off_nec", 0),
+                st.session_state.get("h_off_nec", 0),
+                _cam_opacity, _cam_pair,
             )
-            with ctx.video_processor._lock:
-                ctx.video_processor.category      = st.session_state.get("active_type", "Earring")
-                ctx.video_processor.earring_path  = _live_ear_path
-                ctx.video_processor.necklace_path = _live_nec_path
-                ctx.video_processor.size_factor   = st.session_state.get("_ear_size_factor", 1.0)
-                ctx.video_processor.v_offset_ear  = st.session_state.get("v_off_ear", 0)
-                ctx.video_processor.h_offset_ear  = st.session_state.get("h_off_ear", 0)
-                ctx.video_processor.v_offset_nec  = st.session_state.get("v_off_nec", 0)
-                ctx.video_processor.h_offset_nec  = st.session_state.get("h_off_nec", 0)
-                ctx.video_processor.opacity       = st.session_state.get("global_opacity", 1.0)
-                ctx.video_processor.is_pair       = _is_pair
 
-        st.info(
-            "**Tips:** Use the Fine-tune sliders in the sidebar to adjust size and position "
-            "while the camera is live. Works best in Chrome with good lighting."
-        )
+        if _cam_result:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.subheader("Original")
+                st.image(_cam_bytes, use_container_width=True)
+            with c2:
+                st.subheader("Try-On Result")
+                st.image(_cam_result, use_container_width=True)
+            st.download_button(
+                "⬇️ Download",
+                data=_cam_result,
+                file_name="camera_tryon.png",
+                mime="image/png",
+                use_container_width=True,
+                key="dl_cam_result",
+            )
+        else:
+            st.error(
+                "No face detected in the photo. "
+                "Please use a clear front-facing shot with good lighting."
+            )

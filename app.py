@@ -144,6 +144,23 @@ html { scroll-behavior: auto !important; }
 [data-testid="stAlert"], [data-testid="stNotification"] { min-height: 80px; }
 
 .block-container { padding-bottom: 4rem; }
+
+/* ── Jewellery carousel cards ─────────────────────────────────── */
+.jewel-card-selected > div[data-testid="stImage"] img {
+    border-radius: 8px;
+    outline: 3px solid #FFD700;
+    outline-offset: 2px;
+    box-shadow: 0 0 10px rgba(255,215,0,0.55);
+}
+.jewel-card > div[data-testid="stImage"] img {
+    border-radius: 8px;
+    border: 1px solid #E0E0E0;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+.jewel-card > div[data-testid="stImage"] img:hover {
+    transform: scale(1.04);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -151,6 +168,7 @@ html { scroll-behavior: auto !important; }
 for key, default in [
     ("selected_earring",   None),
     ("selected_necklace",  None),
+    ("gallery_cats",       ["Earring"]),
     ("page_earring",       0),
     ("page_necklace",      0),
     ("active_type",        "Earring"),
@@ -179,7 +197,7 @@ for _k in ("v_off_ear", "h_off_ear", "v_off_nec", "h_off_nec"):
         del st.session_state[_pending]
 
 CATALOGUE = load_catalogue()
-ITEMS_PER_PAGE = 4   # 2 rows × 2 cols in sidebar
+GALLERY_PAGE_SIZE = 6   # cards visible per carousel page
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -187,21 +205,11 @@ ITEMS_PER_PAGE = 4   # 2 rows × 2 cols in sidebar
 # ══════════════════════════════════════════════════════════════════════════════
 
 with st.sidebar:
-    st.title("💍 Jewellery Gallery")
+    st.title("💍 Jewellery AR")
 
-    # ── category selector ──────────────────────────────────────────────────────
-    category = st.radio(
-        "Category",
-        ["Earring", "Necklace", "Both"],
-        horizontal=True,
-        key="active_type",
-        label_visibility="collapsed",
-    )
-
-    # ── jewellery type toggle  ─────────────────────────────────────────────────
     use_flux = st.toggle(
         "AI Overlay (Flux Kontext Pro)",
-        value=bool(_bfl_key()),   # on by default when API key is present
+        value=bool(_bfl_key()),
         disabled=not _bfl_key(),
         help="Uses Flux Kontext Pro for photorealistic AI jewellery overlay (requires BFL_API_KEY).",
         key="use_flux_toggle",
@@ -209,103 +217,42 @@ with st.sidebar:
 
     st.divider()
 
-    def gallery_panel(cat_key: str):
-        """Render paginated 2×2 gallery for a category, return selected item."""
-        items   = CATALOGUE.get(cat_key, [])
-        page_k  = f"page_{cat_key.lower()}"
-        sel_k   = f"selected_{cat_key.lower()}"
-        total   = len(items)
-        n_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
-        page    = st.session_state[page_k]
-        page    = max(0, min(page, n_pages - 1))
+    # Selection summary — reads from session state set by the gallery above the tabs
+    _cat     = st.session_state.get("active_type", "Earring")
+    _sel_ear = st.session_state.get("selected_earring")
+    _sel_nec = st.session_state.get("selected_necklace")
+    if _cat in ("Earring", "Both"):
+        (st.success(f"Earring: {_sel_ear['name']}") if _sel_ear else st.info("No earring selected."))
+    if _cat in ("Necklace", "Both"):
+        (st.success(f"Necklace: {_sel_nec['name']}") if _sel_nec else st.info("No necklace selected."))
 
-        slice_  = items[page * ITEMS_PER_PAGE : (page + 1) * ITEMS_PER_PAGE]
-
-        if not slice_:
-            st.caption(f"No {cat_key.lower()} assets found in assets/jewellery/{cat_key.lower()}s/")
-            return
-
-        # ── 2-column grid ──────────────────────────────────────────────────────
-        for row_start in range(0, len(slice_), 2):
-            c1, c2 = st.columns(2)
-            for col, item in zip([c1, c2], slice_[row_start:row_start+2]):
-                with col:
-                    st.image(_load_gallery_preview(item["path"]), use_container_width=True)
-                    selected = st.session_state[sel_k]
-                    is_sel   = selected is not None and selected["id"] == item["id"]
-                    btn_label = "✅ Selected" if is_sel else "Select"
-                    if st.button(btn_label, key=f"btn_{cat_key}_{item['id']}", use_container_width=True):
-                        st.session_state[sel_k] = item
-                        st.rerun()
-                    st.caption(item["name"])
-
-        # ── pagination ─────────────────────────────────────────────────────────
-        prev_col, info_col, next_col = st.columns([1, 2, 1])
-        with prev_col:
-            if st.button("←", key=f"prev_{cat_key}", disabled=page == 0):
-                st.session_state[page_k] -= 1
-                st.rerun()
-        with info_col:
-            st.caption(f"{page+1} / {n_pages}  ({total} items)")
-        with next_col:
-            if st.button("→", key=f"next_{cat_key}", disabled=page >= n_pages - 1):
-                st.session_state[page_k] += 1
-                st.rerun()
-
-    # ── show correct panel(s) ──────────────────────────────────────────────────
-    if category == "Both":
-        st.subheader("Earrings")
-        gallery_panel("Earring")
-        st.divider()
-        st.subheader("Necklace")
-        gallery_panel("Necklace")
-    else:
-        gallery_panel(category)
-
-    # ── show current selection summary ────────────────────────────────────────
-    st.divider()
-    sel_ear = st.session_state.selected_earring
-    sel_nec = st.session_state.selected_necklace
-    if category in ("Earring", "Both") and sel_ear:
-        st.success(f"Earring: {sel_ear['name']}")
-    if category in ("Necklace", "Both") and sel_nec:
-        st.success(f"Necklace: {sel_nec['name']}")
-    if category == "Earring" and not sel_ear:
-        st.info("Select an earring above.")
-    if category == "Necklace" and not sel_nec:
-        st.info("Select a necklace above.")
-    if category == "Both" and not (sel_ear and sel_nec):
-        st.info("Select both an earring and a necklace.")
-
-    # ── global + per-earring adjustments ─────────────────────────────────────
     st.divider()
     st.subheader("Fine-tune")
 
-    opacity           = st.slider("Opacity (how solid the jewellery looks)",    0.1, 1.0, 1.0, 0.05, key="global_opacity")
-    v_offset_earring  = st.slider("Earring Up / Down position (px)",            -60,  60,   0,    2, key="v_off_ear")
-    h_offset_earring  = st.slider("Earring Left / Right position (px)",         -60,  60,   0,    2, key="h_off_ear")
-    v_offset_necklace = st.slider("Necklace Up / Down position (px)",           -60, 300,   0,    2, key="v_off_nec")
-    h_offset_necklace = st.slider("Necklace Left / Right position (px)",       -200, 200,   0,    2, key="h_off_nec")
+    st.slider("Opacity",                              0.1, 1.0, 1.0, 0.05, key="global_opacity")
+    st.slider("Earring Up / Down (px)",               -60,  60,   0,    2, key="v_off_ear")
+    st.slider("Earring Left / Right (px)",            -60,  60,   0,    2, key="h_off_ear")
+    st.slider("Necklace Up / Down (px)",              -60, 300,   0,    2, key="v_off_nec")
+    st.slider("Necklace Left / Right (px)",          -200, 200,   0,    2, key="h_off_nec")
+    st.slider("Jewellery Size",                       0.3, 3.0, 1.0, 0.05, key="global_size_factor")
 
-    # Global size (applies to all)
-    size_factor = st.slider("Jewellery Size (makes all jewellery bigger/smaller)", 0.3, 3.0, 1.0, 0.05, key="global_size_factor")
-
-    # Per-earring size offset (persists per earring design)
-    ear_size_factor = size_factor
-    if sel_ear:
-        sk = f"earsize_{sel_ear['id']}"
-        if sk not in st.session_state:
-            st.session_state[sk] = 1.0
-        per_ear = st.slider(
-            f"{sel_ear['name']} — individual size adjustment",
+    if _sel_ear:
+        _sk = f"earsize_{_sel_ear['id']}"
+        if _sk not in st.session_state:
+            st.session_state[_sk] = 1.0
+        _per_ear = st.slider(
+            f"{_sel_ear['name']} — individual size",
             0.3, 3.0,
-            st.session_state[sk],
+            st.session_state[_sk],
             0.05,
-            key=f"sl_{sk}",
+            key=f"sl_{_sk}",
         )
-        st.session_state[sk] = per_ear
-        ear_size_factor = size_factor * per_ear
-    st.session_state["_ear_size_factor"] = ear_size_factor
+        st.session_state[_sk] = _per_ear
+        st.session_state["_ear_size_factor"] = (
+            st.session_state.get("global_size_factor", 1.0) * _per_ear
+        )
+    else:
+        st.session_state["_ear_size_factor"] = st.session_state.get("global_size_factor", 1.0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -778,11 +725,104 @@ def _video_result_key(video_hash: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Jewellery gallery — horizontal carousel above the tabs
+# ══════════════════════════════════════════════════════════════════════════════
+
+def jewellery_gallery():
+    """Horizontal carousel gallery with multiselect category filter."""
+    cats = st.multiselect(
+        "Jewellery Category",
+        ["Earring", "Necklace"],
+        default=st.session_state.get("gallery_cats", ["Earring"]),
+        key="gallery_cats",
+        help="Choose one or both to see matching galleries below.",
+    )
+
+    # Derive active_type from category selection
+    if "Earring" in cats and "Necklace" in cats:
+        st.session_state["active_type"] = "Both"
+    elif "Necklace" in cats:
+        st.session_state["active_type"] = "Necklace"
+    elif "Earring" in cats:
+        st.session_state["active_type"] = "Earring"
+
+    if not cats:
+        st.info("Select at least one category above to browse jewellery.")
+        return
+
+    for cat_key in ["Earring", "Necklace"]:
+        if cat_key not in cats:
+            continue
+
+        items   = CATALOGUE.get(cat_key, [])
+        page_k  = f"page_{cat_key.lower()}"
+        sel_k   = f"selected_{cat_key.lower()}"
+        total   = len(items)
+        n_pages = max(1, (total + GALLERY_PAGE_SIZE - 1) // GALLERY_PAGE_SIZE)
+        page    = max(0, min(st.session_state.get(page_k, 0), n_pages - 1))
+
+        head_col, nav_col = st.columns([5, 2])
+        with head_col:
+            label = "Earrings" if cat_key == "Earring" else "Necklaces"
+            st.markdown(
+                f"**{label}** "
+                f"<span style='color:#888;font-size:0.82em;'>({total} items)</span>",
+                unsafe_allow_html=True,
+            )
+        with nav_col:
+            nc1, nc2, nc3 = st.columns([1, 1, 1])
+            with nc1:
+                if st.button("◀", key=f"prev_{cat_key}", disabled=page == 0,
+                             use_container_width=True):
+                    st.session_state[page_k] = page - 1
+                    st.rerun()
+            with nc2:
+                st.caption(f"{page+1} / {n_pages}")
+            with nc3:
+                if st.button("▶", key=f"next_{cat_key}",
+                             disabled=page >= n_pages - 1, use_container_width=True):
+                    st.session_state[page_k] = page + 1
+                    st.rerun()
+
+        page   = max(0, min(st.session_state.get(page_k, 0), n_pages - 1))
+        slice_ = items[page * GALLERY_PAGE_SIZE : (page + 1) * GALLERY_PAGE_SIZE]
+
+        if not slice_:
+            st.caption(f"No {cat_key.lower()} assets in assets/jewellery/{cat_key.lower()}s/")
+        else:
+            selected = st.session_state.get(sel_k)
+            cols     = st.columns(GALLERY_PAGE_SIZE)
+            for idx, item in enumerate(slice_):
+                is_sel  = selected is not None and selected["id"] == item["id"]
+                css_cls = "jewel-card-selected" if is_sel else "jewel-card"
+                with cols[idx]:
+                    st.markdown(f'<div class="{css_cls}">', unsafe_allow_html=True)
+                    st.image(_load_gallery_preview(item["path"]), use_container_width=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    if st.button(
+                        "✅" if is_sel else "Select",
+                        key=f"gsel_{cat_key}_{item['id']}",
+                        use_container_width=True,
+                    ):
+                        st.session_state[sel_k] = item
+                        st.rerun()
+                    name = item["name"]
+                    st.caption(name[:16] + ("…" if len(name) > 16 else ""))
+
+        if len(cats) > 1:
+            st.divider()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Main — tabs
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.title("💍 Jewellery AR Try-On")
 st.caption("Powered by MediaPipe · Flux Kontext Pro · Azure OpenAI GPT-4o")
+
+jewellery_gallery()
+
+st.divider()
 
 tab1, tab2, tab3, tab4 = st.tabs(["📁 Upload Photo", "📷 Camera Capture", "🎬 Video Try-On", "📡 Live AR"])
 
@@ -863,7 +903,7 @@ with tab3:
     )
 
     if not uploaded_video:
-        st.info("Upload a video, select jewellery from the sidebar, then click **Process Video**.")
+        st.info("Upload a video, select jewellery from the gallery above, then click **Process Video**.")
     else:
         video_hash = hashlib.md5(uploaded_video.getvalue()).hexdigest()[:10]
 
@@ -877,7 +917,7 @@ with tab3:
         )
 
         if not ready:
-            st.warning("Select jewellery from the sidebar gallery first, then click **Process Video**.")
+            st.warning("Select jewellery from the gallery above first, then click **Process Video**.")
 
         vkey = _video_result_key(video_hash) if ready else ""
 
@@ -893,8 +933,9 @@ with tab3:
             if st.button("▶️ Process Video", key="btn_process_video",
                          use_container_width=True,
                          help="Apply selected jewellery to every frame"):
+                _sf      = st.session_state.get("global_size_factor", 1.0)
                 is_pair  = bool(sel_ear) and Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
-                eff_size = st.session_state.get("_ear_size_factor", size_factor)
+                eff_size = st.session_state.get("_ear_size_factor", _sf)
 
                 ear_path = None
                 if sel_ear:
@@ -910,10 +951,13 @@ with tab3:
                     out_bytes, msg = _process_video(
                         uploaded_video.getvalue(),
                         cat, ear_path, nec_path,
-                        eff_size, size_factor,
-                        v_offset_earring, h_offset_earring,
-                        v_offset_necklace, h_offset_necklace,
-                        opacity, is_pair,
+                        eff_size, _sf,
+                        st.session_state.get("v_off_ear", 0),
+                        st.session_state.get("h_off_ear", 0),
+                        st.session_state.get("v_off_nec", 0),
+                        st.session_state.get("h_off_nec", 0),
+                        st.session_state.get("global_opacity", 1.0),
+                        is_pair,
                         prog,
                     )
                     prog.empty()
@@ -974,17 +1018,19 @@ with tab4:
 
     if _webrtc_ok:
         # Resolve jewellery paths for the processor
+        _live_sel_ear  = st.session_state.get("selected_earring")
+        _live_sel_nec  = st.session_state.get("selected_necklace")
         _live_ear_path = None
         _live_nec_path = None
-        if sel_ear:
-            resolve_overlay_image(sel_ear)
-            _live_ear_path = sel_ear.get("nobg_path") or str(sel_ear["path"])
-        if sel_nec:
-            resolve_overlay_image(sel_nec)
-            _live_nec_path = sel_nec.get("nobg_path") or str(sel_nec["path"])
+        if _live_sel_ear:
+            resolve_overlay_image(_live_sel_ear)
+            _live_ear_path = _live_sel_ear.get("nobg_path") or str(_live_sel_ear["path"])
+        if _live_sel_nec:
+            resolve_overlay_image(_live_sel_nec)
+            _live_nec_path = _live_sel_nec.get("nobg_path") or str(_live_sel_nec["path"])
 
         if not (_live_ear_path or _live_nec_path):
-            st.info("Select jewellery from the sidebar gallery, then start the camera below.")
+            st.info("Select jewellery from the gallery above, then start the camera below.")
 
         RTC_CONFIG = RTCConfiguration({
             "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
@@ -999,17 +1045,20 @@ with tab4:
         )
 
         if ctx.video_processor:
-            _is_pair = bool(sel_ear) and Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
+            _is_pair = (
+                bool(_live_sel_ear)
+                and Path(_live_sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
+            )
             with ctx.video_processor._lock:
-                ctx.video_processor.category      = category
+                ctx.video_processor.category      = st.session_state.get("active_type", "Earring")
                 ctx.video_processor.earring_path  = _live_ear_path
                 ctx.video_processor.necklace_path = _live_nec_path
-                ctx.video_processor.size_factor   = ear_size_factor
-                ctx.video_processor.v_offset_ear  = v_offset_earring
-                ctx.video_processor.h_offset_ear  = h_offset_earring
-                ctx.video_processor.v_offset_nec  = v_offset_necklace
-                ctx.video_processor.h_offset_nec  = h_offset_necklace
-                ctx.video_processor.opacity       = opacity
+                ctx.video_processor.size_factor   = st.session_state.get("_ear_size_factor", 1.0)
+                ctx.video_processor.v_offset_ear  = st.session_state.get("v_off_ear", 0)
+                ctx.video_processor.h_offset_ear  = st.session_state.get("h_off_ear", 0)
+                ctx.video_processor.v_offset_nec  = st.session_state.get("v_off_nec", 0)
+                ctx.video_processor.h_offset_nec  = st.session_state.get("h_off_nec", 0)
+                ctx.video_processor.opacity       = st.session_state.get("global_opacity", 1.0)
                 ctx.video_processor.is_pair       = _is_pair
 
         st.info(

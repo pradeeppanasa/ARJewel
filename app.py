@@ -196,7 +196,6 @@ html { scroll-behavior: auto !important; }
 for key, default in [
     ("selected_earring",   None),
     ("selected_necklace",  None),
-    ("gallery_cats",       ["Earring"]),
     ("page_earring",       0),
     ("page_necklace",      0),
     ("active_type",        "Earring"),
@@ -247,12 +246,19 @@ with st.sidebar:
     st.divider()
     st.subheader("Fine-tune")
 
-    st.slider("Opacity",                              0.1, 1.0, 1.0, 0.05, key="global_opacity")
-    st.slider("Earring Up / Down (px)",               -60,  60,   0,    2, key="v_off_ear")
-    st.slider("Earring Left / Right (px)",            -60,  60,   0,    2, key="h_off_ear")
-    st.slider("Necklace Up / Down (px)",              -60, 300,   0,    2, key="v_off_nec")
-    st.slider("Necklace Left / Right (px)",          -200, 200,   0,    2, key="h_off_nec")
-    st.slider("Jewellery Size",                       0.3, 3.0, 1.0, 0.05, key="global_size_factor")
+    _ft_cat = st.session_state.get("active_type", "Earring")
+    st.slider("Opacity",        0.1, 1.0, 1.0, 0.05, key="global_opacity")
+    st.slider("Jewellery Size", 0.3, 3.0, 1.0, 0.05, key="global_size_factor")
+
+    if _ft_cat in ("Earring", "Both"):
+        st.caption("Earring position")
+        st.slider("Up / Down (px)",    -60,  60, 0, 2, key="v_off_ear")
+        st.slider("Left / Right (px)", -60,  60, 0, 2, key="h_off_ear")
+
+    if _ft_cat in ("Necklace", "Both"):
+        st.caption("Necklace position")
+        st.slider("Up / Down (px)",    -60, 300, 0, 2, key="v_off_nec")
+        st.slider("Left / Right (px)", -200, 200, 0, 2, key="h_off_nec")
 
     if _sel_ear:
         _sk = f"earsize_{_sel_ear['id']}"
@@ -732,31 +738,16 @@ def _video_result_key(video_hash: str) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def jewellery_gallery():
-    """Horizontal carousel gallery with multiselect category filter."""
-    cats = st.multiselect(
-        "Jewellery Category",
-        ["Earring", "Necklace"],
-        default=st.session_state.get("gallery_cats", ["Earring"]),
-        key="gallery_cats",
-        help="Choose one or both to see matching galleries below.",
+    """Horizontal carousel gallery — radio picks what to try on."""
+    choice = st.radio(
+        "What would you like to try on?",
+        ["Earring", "Necklace", "Both"],
+        horizontal=True,
+        key="active_type",
     )
+    cats_to_show = ["Earring", "Necklace"] if choice == "Both" else [choice]
 
-    # Derive active_type from category selection
-    if "Earring" in cats and "Necklace" in cats:
-        st.session_state["active_type"] = "Both"
-    elif "Necklace" in cats:
-        st.session_state["active_type"] = "Necklace"
-    elif "Earring" in cats:
-        st.session_state["active_type"] = "Earring"
-
-    if not cats:
-        st.info("Select at least one category above to browse jewellery.")
-        return
-
-    for cat_key in ["Earring", "Necklace"]:
-        if cat_key not in cats:
-            continue
-
+    for cat_key in cats_to_show:
         items   = CATALOGUE.get(cat_key, [])
         page_k  = f"page_{cat_key.lower()}"
         sel_k   = f"selected_{cat_key.lower()}"
@@ -814,7 +805,7 @@ def jewellery_gallery():
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
-        if len(cats) > 1:
+        if len(cats_to_show) > 1:
             st.divider()
 
 

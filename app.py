@@ -71,14 +71,19 @@ def resolve_overlay_image(item: dict) -> Image.Image:
     return Image.open(source).convert("RGBA")
 
 
+_THUMB = 140   # px — all gallery thumbnails are this exact square size
+
 @st.cache_data(show_spinner=False)
 def _load_gallery_preview(path: str) -> bytes:
-    """Load and composite a jewellery thumbnail once; cached across reruns."""
+    """Return a fixed _THUMB×_THUMB JPEG thumbnail — identical size for every card."""
     img = Image.open(path).convert("RGBA")
-    bg  = Image.new("RGBA", img.size, (245, 245, 245, 255))
-    bg.paste(img, mask=img)
+    img.thumbnail((_THUMB, _THUMB), Image.LANCZOS)          # fit inside square
+    canvas = Image.new("RGB", (_THUMB, _THUMB), (30, 30, 30))  # dark bg
+    x = (_THUMB - img.width)  // 2
+    y = (_THUMB - img.height) // 2
+    canvas.paste(img.convert("RGB"), (x, y), mask=img.split()[3])
     buf = io.BytesIO()
-    bg.convert("RGB").save(buf, format="PNG")
+    canvas.save(buf, format="JPEG", quality=88)
     return buf.getvalue()
 
 
@@ -224,6 +229,38 @@ for _k in ("v_off_ear", "h_off_ear", "v_off_nec", "h_off_nec"):
 
 CATALOGUE = load_catalogue()
 GALLERY_PAGE_SIZE = 6   # cards visible per carousel page
+
+
+@st.cache_resource(show_spinner=False)
+def _start_nobg_preload(_sentinel: int = 1) -> None:
+    """
+    Background-thread that pre-removes backgrounds for all JPG catalogue items.
+    Runs once per deployment (cache_resource keeps it alive).
+    By the time a user clicks Select, the nobg PNG is usually ready.
+    """
+    import threading
+
+    def _worker():
+        for cat_items in CATALOGUE.values():
+            for item in cat_items:
+                src = Path(item["path"])
+                if src.suffix.lower() not in (".jpg", ".jpeg"):
+                    continue
+                nobg_p = src.with_name(src.stem + "_nobg.png")
+                if nobg_p.exists():
+                    item["nobg_path"] = str(nobg_p)
+                else:
+                    try:
+                        from utils.bg_remove import ensure_nobg
+                        nbp = ensure_nobg(src)
+                        item["nobg_path"] = str(nbp)
+                    except Exception:
+                        pass
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+_start_nobg_preload()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -787,15 +824,15 @@ def jewellery_gallery():
                     st.markdown(f'<div class="{css_cls}">', unsafe_allow_html=True)
                     st.image(_load_gallery_preview(item["path"]), use_container_width=True)
                     st.markdown("</div>", unsafe_allow_html=True)
+                    name = item["name"]
+                    st.caption(name[:12] + ("…" if len(name) > 12 else ""))
                     if st.button(
-                        "✅" if is_sel else "Select",
+                        "✅ On" if is_sel else "Select",
                         key=f"gsel_{cat_key}_{item['id']}",
                         use_container_width=True,
                     ):
                         st.session_state[sel_k] = item
                         st.rerun()
-                    name = item["name"]
-                    st.caption(name[:15] + ("…" if len(name) > 15 else ""))
 
         with col_next:
             st.markdown('<div class="carousel-nav">', unsafe_allow_html=True)

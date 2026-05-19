@@ -53,16 +53,29 @@ def _soften_edges(img: Image.Image, radius: float = 1.5) -> Image.Image:
     return Image.merge("RGBA", (r, g, b, a))
 
 
-def _add_specular_highlight(img: Image.Image, intensity: float = 0.22) -> Image.Image:
-    """Add a top-to-bottom white gradient highlight for a 3D sheen effect."""
+def _add_specular_highlight(img: Image.Image, intensity: float = 0.45) -> Image.Image:
+    """Add a top-to-bottom white gradient highlight + bottom darkening for a dramatic 3D sheen effect."""
     img = img.convert("RGBA")
     arr = np.array(img, dtype=np.float32)
     h = arr.shape[0]
+
+    # Top highlight: bright specular shine on upper portion
     grad = np.clip(1.0 - np.arange(h) / max(h * 0.6, 1), 0.0, 1.0).reshape(h, 1)
     shine = grad * intensity * arr[:, :, 3]
     arr[:, :, 0] = np.clip(arr[:, :, 0] + shine, 0, 255)
     arr[:, :, 1] = np.clip(arr[:, :, 1] + shine, 0, 255)
     arr[:, :, 2] = np.clip(arr[:, :, 2] + shine, 0, 255)
+
+    # Bottom darkening: subtle tint on lower 40% for contrast / depth
+    dark_intensity = 0.15
+    rows = np.arange(h, dtype=np.float32)
+    cutoff = h * 0.60
+    dark_grad = np.clip((rows - cutoff) / max(h * 0.40, 1), 0.0, 1.0).reshape(h, 1)
+    shadow = dark_grad * dark_intensity * arr[:, :, 3]
+    arr[:, :, 0] = np.clip(arr[:, :, 0] - shadow, 0, 255)
+    arr[:, :, 1] = np.clip(arr[:, :, 1] - shadow, 0, 255)
+    arr[:, :, 2] = np.clip(arr[:, :, 2] - shadow, 0, 255)
+
     return Image.fromarray(arr.astype(np.uint8), "RGBA")
 
 
@@ -98,7 +111,7 @@ def overlay_earring(
 
     earring = apply_opacity(earring, opacity)
     earring = _soften_edges(earring, radius=1.5)
-    earring = _add_specular_highlight(earring, intensity=0.22)
+    earring = _add_specular_highlight(earring, intensity=0.45)
 
     # position: centre on landmark x, 10 px below landmark y
     ew, eh = earring.size
@@ -111,7 +124,7 @@ def overlay_earring(
     # drop shadow — larger blur + offset for 3D depth
     _r, _g, _b, alpha = earring.split()
     shadow_alpha = alpha.filter(ImageFilter.GaussianBlur(radius=5))
-    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.45))
+    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.65))
     shadow = Image.new("RGBA", earring.size, (0, 0, 0, 0))
     shadow.putalpha(shadow_alpha)
     base_img = paste_with_alpha(base_img, shadow, (x + 3, y + 3))
@@ -184,7 +197,7 @@ def overlay_necklace(
     necklace = resize_image(necklace, target_w, target_h)
     necklace = apply_opacity(necklace, opacity)
     necklace = _soften_edges(necklace, radius=1.5)
-    necklace = _add_specular_highlight(necklace, intensity=0.18)
+    necklace = _add_specular_highlight(necklace, intensity=0.38)
 
     nx, ny = landmarks["neck_center"]
     nw, nh = necklace.size
@@ -194,7 +207,7 @@ def overlay_necklace(
     # drop shadow for depth
     _r, _g, _b, nec_alpha = necklace.split()
     shadow_alpha = nec_alpha.filter(ImageFilter.GaussianBlur(radius=6))
-    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.40))
+    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.60))
     shadow = Image.new("RGBA", necklace.size, (0, 0, 0, 0))
     shadow.putalpha(shadow_alpha)
     base_img = paste_with_alpha(base_img, shadow, (x + 4, y + 4))

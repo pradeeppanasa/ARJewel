@@ -163,6 +163,9 @@ for key, default in [
     ("h_off_nec",          0),
     ("video_result_bytes", None),
     ("video_result_key",   ""),
+    ("global_opacity",      1.0),
+    ("global_size_factor",  1.0),
+    ("use_flux_toggle",     False),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -201,6 +204,7 @@ with st.sidebar:
         value=bool(_bfl_key()),   # on by default when API key is present
         disabled=not _bfl_key(),
         help="Uses Flux Kontext Pro for photorealistic AI jewellery overlay (requires BFL_API_KEY).",
+        key="use_flux_toggle",
     )
 
     st.divider()
@@ -277,14 +281,14 @@ with st.sidebar:
     st.divider()
     st.subheader("Fine-tune")
 
-    opacity           = st.slider("Opacity (how solid the jewellery looks)",    0.1, 1.0, 1.0, 0.05)
+    opacity           = st.slider("Opacity (how solid the jewellery looks)",    0.1, 1.0, 1.0, 0.05, key="global_opacity")
     v_offset_earring  = st.slider("Earring Up / Down position (px)",            -60,  60,   0,    2, key="v_off_ear")
     h_offset_earring  = st.slider("Earring Left / Right position (px)",         -60,  60,   0,    2, key="h_off_ear")
     v_offset_necklace = st.slider("Necklace Up / Down position (px)",           -60, 300,   0,    2, key="v_off_nec")
     h_offset_necklace = st.slider("Necklace Left / Right position (px)",       -200, 200,   0,    2, key="h_off_nec")
 
     # Global size (applies to all)
-    size_factor = st.slider("Jewellery Size (makes all jewellery bigger/smaller)", 0.3, 3.0, 1.0, 0.05)
+    size_factor = st.slider("Jewellery Size (makes all jewellery bigger/smaller)", 0.3, 3.0, 1.0, 0.05, key="global_size_factor")
 
     # Per-earring size offset (persists per earring design)
     ear_size_factor = size_factor
@@ -412,30 +416,46 @@ def _cached_markers(source_bytes: bytes, cat: str,
     return pil_to_bytes(marked)
 
 
-def _result_session_key() -> str:
-    # Use pre-stored image hash — avoids expensive pil_to_bytes on every rerun
+def _result_session_key(
+    v_off_ear: int | None = None,
+    h_off_ear: int | None = None,
+    v_off_nec: int | None = None,
+    h_off_nec: int | None = None,
+) -> str:
     img_hash = st.session_state.get("source_image_hash", "no_img")
     cat      = st.session_state.active_type
     sel_ear  = st.session_state.selected_earring
     sel_nec  = st.session_state.selected_necklace
     eff_sz   = st.session_state.get("_ear_size_factor", 1.0)
-    parts    = [
+    size_f   = st.session_state.get("global_size_factor", 1.0)
+    opacity  = st.session_state.get("global_opacity", 1.0)
+    voe = v_off_ear if v_off_ear is not None else st.session_state.get("v_off_ear", 0)
+    hoe = h_off_ear if h_off_ear is not None else st.session_state.get("h_off_ear", 0)
+    von = v_off_nec if v_off_nec is not None else st.session_state.get("v_off_nec", 0)
+    hon = h_off_nec if h_off_nec is not None else st.session_state.get("h_off_nec", 0)
+    parts = [
         img_hash, cat,
         sel_ear["id"] if sel_ear else "",
         sel_nec["id"] if sel_nec else "",
         str(round(eff_sz, 3)),
-        str(round(size_factor, 3)),
-        str(v_offset_earring), str(h_offset_earring),
-        str(v_offset_necklace), str(h_offset_necklace),
+        str(round(size_f, 3)),
+        str(voe), str(hoe),
+        str(von), str(hon),
         str(round(opacity, 3)),
     ]
     return "res_" + hashlib.md5("|".join(parts).encode()).hexdigest()
 
 
+@st.fragment
 def show_result(source_img: Image.Image, _download_key: str = "download_result"):
-    cat     = st.session_state.active_type
-    sel_ear = st.session_state.selected_earring
-    sel_nec = st.session_state.selected_necklace
+    # Read all state from session_state so fragment reruns work independently
+    cat      = st.session_state.active_type
+    sel_ear  = st.session_state.selected_earring
+    sel_nec  = st.session_state.selected_necklace
+    use_flux = st.session_state.get("use_flux_toggle", False)
+    size_f   = st.session_state.get("global_size_factor", 1.0)
+    opacity  = st.session_state.get("global_opacity", 1.0)
+    eff_size = st.session_state.get("_ear_size_factor", size_f)
 
     if cat == "Earring"  and not sel_ear:
         st.info("Please select an earring from the gallery.")
@@ -451,46 +471,47 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
     if not src_bytes:
         return
 
+    # Sync click-based overrides: if slider moved since last fragment run, discard override
+    for adj_k, slider_k in [
+        ("_fadj_voe", "v_off_ear"), ("_fadj_hoe", "h_off_ear"),
+        ("_fadj_von", "v_off_nec"), ("_fadj_hon", "h_off_nec"),
+    ]:
+        last_k     = f"_flast_{slider_k}"
+        slider_val = st.session_state.get(slider_k, 0)
+        if st.session_state.get(last_k, slider_val) != slider_val:
+            st.session_state.pop(adj_k, None)
+        st.session_state[last_k] = slider_val
+
+    # Effective offsets: click-adjusted (fragment-local) or slider value
+    voe = st.session_state.get("_fadj_voe", st.session_state.get("v_off_ear", 0))
+    hoe = st.session_state.get("_fadj_hoe", st.session_state.get("h_off_ear", 0))
+    von = st.session_state.get("_fadj_von", st.session_state.get("v_off_nec", 0))
+    hon = st.session_state.get("_fadj_hon", st.session_state.get("h_off_nec", 0))
+
     result_bytes: bytes | None = None
 
-    # ── Flux path (slow — always cache result in session state) ───────────────
+    # ── Flux path (explicit button — never auto-calls) ────────────────────────
+    flux_result: bytes | None = None
     if use_flux and _bfl_key():
-        flux_key = _result_session_key()
-        if flux_key not in st.session_state:
-            design_name = (sel_ear["name"] if sel_ear else "") or (sel_nec["name"] if sel_nec else "")
-            ref_img = resolve_overlay_image(sel_ear if sel_ear else sel_nec)
-            try:
-                with st.spinner("Sending to Flux Kontext Pro… (30–60 s)"):
-                    r = overlay_with_flux(source_img, ref_img, cat, design_name, _bfl_key())
-                st.session_state[flux_key] = pil_to_bytes(r.convert("RGB"))
-            except Exception:
-                st.session_state[flux_key] = None
-        result_bytes = st.session_state.get(flux_key)
+        flux_key = _result_session_key()           # uses slider values as cache key
+        flux_result = st.session_state.get(flux_key)
 
-    # ── Local path ────────────────────────────────────────────────────────────
-    if result_bytes is None:
-        is_pair  = bool(sel_ear) and Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
-        eff_size = st.session_state.get("_ear_size_factor", size_factor)
-        ear_path, nec_path = _overlay_paths(sel_ear, sel_nec)
+    # ── Local overlay (instant, always computed) ──────────────────────────────
+    is_pair  = bool(sel_ear) and Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
+    ear_path, nec_path = _overlay_paths(sel_ear, sel_nec)
+    res_key = "local_" + _result_session_key(voe, hoe, von, hon)
+    if res_key not in st.session_state:
+        with st.spinner("Applying jewellery…"):
+            rb = _compute_overlay(
+                src_bytes, cat, ear_path, nec_path, eff_size, size_f,
+                voe, hoe, von, hon, opacity, is_pair,
+            )
+        if rb:
+            st.session_state[res_key] = rb
+    local_result = st.session_state.get(res_key)
 
-        # Cache result bytes in session state keyed by ALL parameters.
-        # Storing in session state means the exact same bytes object is served
-        # on every re-render — React sees an unchanged data-URL and skips DOM
-        # update, eliminating the right-column flicker on subsequent renders.
-        # Spinner only fires on the first compute (key absent); cached renders
-        # skip it entirely, so there is no spinner flash on slider tweaks.
-        res_key = "local_" + _result_session_key()
-        if res_key not in st.session_state:
-            with st.spinner("Applying jewellery…"):
-                rb = _compute_overlay(
-                    src_bytes, cat, ear_path, nec_path, eff_size, size_factor,
-                    v_offset_earring, h_offset_earring,
-                    v_offset_necklace, h_offset_necklace,
-                    opacity, is_pair,
-                )
-            if rb:
-                st.session_state[res_key] = rb
-        result_bytes = st.session_state.get(res_key)
+    # Choose which result to display (Flux wins if available)
+    result_bytes = flux_result or local_result
 
     if result_bytes is None:
         img_dbg = Image.open(io.BytesIO(src_bytes))
@@ -507,6 +528,8 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         st.image(src_bytes, use_container_width=True)
     with col_out:
         st.subheader("Try-On Result")
+        if flux_result:
+            st.caption("✨ Flux Kontext Pro result")
         st.image(result_bytes, use_container_width=True)
         if st.button("🔍 Enlarge", key=f"enlarge_{_download_key}", use_container_width=True):
             _show_enlarged(Image.open(io.BytesIO(result_bytes)))
@@ -520,10 +543,29 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         key=_download_key,
     )
 
+    # ── Flux action buttons ───────────────────────────────────────────────────
+    if use_flux and _bfl_key():
+        flux_key = _result_session_key()
+        if not flux_result:
+            if st.button("✨ Apply with Flux Kontext Pro", key=f"flux_apply_{_download_key}",
+                         use_container_width=True):
+                design_name = (sel_ear["name"] if sel_ear else "") or (sel_nec["name"] if sel_nec else "")
+                ref_img = resolve_overlay_image(sel_ear if sel_ear else sel_nec)
+                with st.spinner("Sending to Flux Kontext Pro… (30–60 s)"):
+                    try:
+                        r = overlay_with_flux(source_img, ref_img, cat, design_name, _bfl_key())
+                        st.session_state[flux_key] = pil_to_bytes(r.convert("RGB"))
+                    except Exception as exc:
+                        st.error(f"Flux failed: {exc}")
+                        st.session_state[flux_key] = None
+                st.rerun()
+        else:
+            if st.button("🔄 Re-generate with Flux", key=f"flux_regen_{_download_key}",
+                         use_container_width=True):
+                del st.session_state[flux_key]
+                st.rerun()
+
     # ── Click-to-position ─────────────────────────────────────────────────────
-    # The component is only instantiated when the checkbox is ON so it never
-    # fires its initial {"x":0,"y":0} value silently and causes an infinite
-    # rerun loop.  Coordinate deduplication is a second guard.
     landmarks = _detect_cached(src_bytes)
     if landmarks:
         show_repo = st.checkbox(
@@ -542,14 +584,12 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
                 pos_mode = cat
 
             if pos_mode == "Earring":
-                st.caption("🟡 Click where you want the **earring** to sit — both sides update together.")
+                st.caption("🟡 Click where you want the **earring** to sit — both sides update.")
             else:
                 st.caption("🔵 Click where you want the **necklace** centre to sit.")
 
             marked_bytes = _cached_markers(
-                src_bytes, pos_mode,
-                v_offset_earring, h_offset_earring,
-                v_offset_necklace, h_offset_necklace,
+                src_bytes, pos_mode, voe, hoe, von, hon,
             )
             coords = None
             if marked_bytes:
@@ -558,29 +598,22 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
                     key=f"click_{_download_key}_{pos_mode}",
                 )
 
-            # Only act on genuinely new coordinates — prevents the initial
-            # {"x":0,"y":0} value (or any repeated value) from looping.
             seen_key = f"_coords_seen_{_download_key}_{pos_mode}"
             if coords and coords != st.session_state.get(seen_key):
                 st.session_state[seen_key] = coords
-                S = 1.0
                 if pos_mode == "Earring":
                     rx, ry = landmarks["right_ear"]
-                    cur_v  = st.session_state.get("v_off_ear", 0)
-                    cur_h  = st.session_state.get("h_off_ear", 0)
-                    new_v  = int(cur_v + (int(coords["y"]) - ry - 10 - cur_v) * S)
-                    new_h  = int(cur_h + (int(coords["x"]) - rx       - cur_h) * S)
-                    st.session_state["_pending_v_off_ear"] = max(-60,  min(60,  new_v))
-                    st.session_state["_pending_h_off_ear"] = max(-60,  min(60,  new_h))
+                    st.session_state["_fadj_voe"] = max(-60, min(60, int(coords["y"]) - ry - 10))
+                    st.session_state["_fadj_hoe"] = max(-60, min(60, int(coords["x"]) - rx))
+                    st.session_state["_flast_v_off_ear"] = st.session_state.get("v_off_ear", 0)
+                    st.session_state["_flast_h_off_ear"] = st.session_state.get("h_off_ear", 0)
                 else:
                     nx, ny = landmarks["neck_center"]
-                    cur_v  = st.session_state.get("v_off_nec", 0)
-                    cur_h  = st.session_state.get("h_off_nec", 0)
-                    new_v  = int(cur_v + (int(coords["y"]) - ny - cur_v) * S)
-                    new_h  = int(cur_h + (int(coords["x"]) - nx - cur_h) * S)
-                    st.session_state["_pending_v_off_nec"] = max(-60,  min(300, new_v))
-                    st.session_state["_pending_h_off_nec"] = max(-200, min(200, new_h))
-                st.rerun()
+                    st.session_state["_fadj_von"] = max(-60,  min(300, int(coords["y"]) - ny))
+                    st.session_state["_fadj_hon"] = max(-200, min(200, int(coords["x"]) - nx))
+                    st.session_state["_flast_v_off_nec"] = st.session_state.get("v_off_nec", 0)
+                    st.session_state["_flast_h_off_nec"] = st.session_state.get("h_off_nec", 0)
+                st.rerun()   # fragment-scoped — only result panel updates, no page reload
 
     # ── GPT-4o auto recommendation ────────────────────────────────────────────
     st.divider()
@@ -721,18 +754,22 @@ def _process_video(
 
 
 def _video_result_key(video_hash: str) -> str:
-    cat     = st.session_state.active_type
-    sel_ear = st.session_state.selected_earring
-    sel_nec = st.session_state.selected_necklace
-    eff_sz  = st.session_state.get("_ear_size_factor", 1.0)
-    parts   = [
+    cat      = st.session_state.active_type
+    sel_ear  = st.session_state.selected_earring
+    sel_nec  = st.session_state.selected_necklace
+    eff_sz   = st.session_state.get("_ear_size_factor", 1.0)
+    size_f   = st.session_state.get("global_size_factor", 1.0)
+    opacity  = st.session_state.get("global_opacity", 1.0)
+    parts    = [
         video_hash, cat,
         sel_ear["id"] if sel_ear else "",
         sel_nec["id"] if sel_nec else "",
         str(round(eff_sz, 3)),
-        str(round(size_factor, 3)),
-        str(v_offset_earring), str(h_offset_earring),
-        str(v_offset_necklace), str(h_offset_necklace),
+        str(round(size_f, 3)),
+        str(st.session_state.get("v_off_ear", 0)),
+        str(st.session_state.get("h_off_ear", 0)),
+        str(st.session_state.get("v_off_nec", 0)),
+        str(st.session_state.get("h_off_nec", 0)),
         str(round(opacity, 3)),
     ]
     return "vid_" + hashlib.md5("|".join(parts).encode()).hexdigest()

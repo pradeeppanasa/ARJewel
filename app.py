@@ -183,7 +183,6 @@ for key, default in [
     ("video_result_key",   ""),
     ("global_opacity",      1.0),
     ("global_size_factor",  1.0),
-    ("use_flux_toggle",     False),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -207,24 +206,20 @@ GALLERY_PAGE_SIZE = 6   # cards visible per carousel page
 with st.sidebar:
     st.title("💍 Jewellery AR")
 
-    use_flux = st.toggle(
-        "AI Overlay (Flux Kontext Pro)",
-        value=bool(_bfl_key()),
-        disabled=not _bfl_key(),
-        help="Uses Flux Kontext Pro for photorealistic AI jewellery overlay (requires BFL_API_KEY).",
-        key="use_flux_toggle",
-    )
-
-    st.divider()
-
     # Selection summary — reads from session state set by the gallery above the tabs
     _cat     = st.session_state.get("active_type", "Earring")
     _sel_ear = st.session_state.get("selected_earring")
     _sel_nec = st.session_state.get("selected_necklace")
     if _cat in ("Earring", "Both"):
-        (st.success(f"Earring: {_sel_ear['name']}") if _sel_ear else st.info("No earring selected."))
+        if _sel_ear:
+            st.success(f"Earring: {_sel_ear['name']}")
+        else:
+            st.info("No earring selected.")
     if _cat in ("Necklace", "Both"):
-        (st.success(f"Necklace: {_sel_nec['name']}") if _sel_nec else st.info("No necklace selected."))
+        if _sel_nec:
+            st.success(f"Necklace: {_sel_nec['name']}")
+        else:
+            st.info("No necklace selected.")
 
     st.divider()
     st.subheader("Fine-tune")
@@ -399,7 +394,6 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
     cat      = st.session_state.active_type
     sel_ear  = st.session_state.selected_earring
     sel_nec  = st.session_state.selected_necklace
-    use_flux = st.session_state.get("use_flux_toggle", False)
     size_f   = st.session_state.get("global_size_factor", 1.0)
     opacity  = st.session_state.get("global_opacity", 1.0)
     eff_size = st.session_state.get("_ear_size_factor", size_f)
@@ -491,12 +485,7 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
     hon = st.session_state.get("_fadj_hon", st.session_state.get("h_off_nec", 0))
 
     # ── Flux path (explicit button — never auto-calls) ────────────────────────
-    flux_result: bytes | None = None
-    if use_flux and _bfl_key():
-        flux_key = _result_session_key()
-        flux_result = st.session_state.get(flux_key)
-
-    # ── Local overlay (instant, always computed) ──────────────────────────────
+    # ── Local overlay (instant, always computed first) ────────────────────────
     is_pair  = bool(sel_ear) and Path(sel_ear["path"]).suffix.lower() in (".jpg", ".jpeg")
     ear_path, nec_path = _overlay_paths(sel_ear, sel_nec)
     res_key = "local_" + _result_session_key(voe, hoe, von, hon)
@@ -509,6 +498,21 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         if rb:
             st.session_state[res_key] = rb
     local_result = st.session_state.get(res_key)
+
+    # ── AI overlay — runs automatically in the background when BFL key is set ─
+    flux_result: bytes | None = None
+    if _bfl_key():
+        flux_key = _result_session_key()
+        if flux_key not in st.session_state:
+            design_name = (sel_ear["name"] if sel_ear else "") or (sel_nec["name"] if sel_nec else "")
+            ref_img = resolve_overlay_image(sel_ear if sel_ear else sel_nec)
+            with st.spinner("Enhancing with AI… (30–60 s)"):
+                try:
+                    r = overlay_with_flux(source_img, ref_img, cat, design_name, _bfl_key())
+                    st.session_state[flux_key] = pil_to_bytes(r.convert("RGB"))
+                except Exception:
+                    st.session_state[flux_key] = None  # mark as attempted so we don't retry
+        flux_result = st.session_state.get(flux_key)
 
     result_bytes = flux_result or local_result
 
@@ -527,8 +531,6 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         st.image(src_bytes, use_container_width=True)
     with col_out:
         st.subheader("Try-On Result")
-        if flux_result:
-            st.caption("✨ Flux Kontext Pro result")
         st.image(result_bytes, use_container_width=True)
         if st.button("🔍 Enlarge", key=f"enlarge_{_download_key}", use_container_width=True):
             _show_enlarged(Image.open(io.BytesIO(result_bytes)))
@@ -541,28 +543,6 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
         use_container_width=True,
         key=_download_key,
     )
-
-    # ── Flux action buttons ───────────────────────────────────────────────────
-    if use_flux and _bfl_key():
-        flux_key = _result_session_key()
-        if not flux_result:
-            if st.button("✨ Apply with Flux Kontext Pro", key=f"flux_apply_{_download_key}",
-                         use_container_width=True):
-                design_name = (sel_ear["name"] if sel_ear else "") or (sel_nec["name"] if sel_nec else "")
-                ref_img = resolve_overlay_image(sel_ear if sel_ear else sel_nec)
-                with st.spinner("Sending to Flux Kontext Pro… (30–60 s)"):
-                    try:
-                        r = overlay_with_flux(source_img, ref_img, cat, design_name, _bfl_key())
-                        st.session_state[flux_key] = pil_to_bytes(r.convert("RGB"))
-                    except Exception as exc:
-                        st.error(f"Flux failed: {exc}")
-                        st.session_state[flux_key] = None
-                st.rerun()
-        else:
-            if st.button("🔄 Re-generate with Flux", key=f"flux_regen_{_download_key}",
-                         use_container_width=True):
-                del st.session_state[flux_key]
-                st.rerun()
 
     # ── GPT-4o auto recommendation ────────────────────────────────────────────
     st.divider()

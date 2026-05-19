@@ -482,18 +482,71 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
             st.session_state.pop(adj_k, None)
         st.session_state[last_k] = slider_val
 
-    # Effective offsets: click-adjusted (fragment-local) or slider value
+    # ── Click-to-position (BEFORE result so coords update in the same rendering pass) ──
+    # When the user clicks, streamlit_image_coordinates returns new coords, we update
+    # _fadj_* immediately, then read them below for the overlay — no second st.rerun() needed.
+    landmarks = _detect_cached(src_bytes)
+    if landmarks:
+        show_repo = st.checkbox(
+            "🎯 Adjust jewellery position by clicking on the photo",
+            key=f"show_repo_{_download_key}",
+        )
+        if show_repo:
+            if cat == "Both":
+                pos_mode = st.radio(
+                    "What to reposition:",
+                    ["Earring", "Necklace"],
+                    horizontal=True,
+                    key=f"pos_mode_{_download_key}",
+                )
+            else:
+                pos_mode = cat
+
+            if pos_mode == "Earring":
+                st.caption("🟡 Click where you want the **earring** to sit.")
+            else:
+                st.caption("🔵 Click where you want the **necklace** centre to sit.")
+
+            # Marker uses pre-click offsets (shows current placement)
+            pre_voe = st.session_state.get("_fadj_voe", st.session_state.get("v_off_ear", 0))
+            pre_hoe = st.session_state.get("_fadj_hoe", st.session_state.get("h_off_ear", 0))
+            pre_von = st.session_state.get("_fadj_von", st.session_state.get("v_off_nec", 0))
+            pre_hon = st.session_state.get("_fadj_hon", st.session_state.get("h_off_nec", 0))
+            marked_bytes = _cached_markers(src_bytes, pos_mode, pre_voe, pre_hoe, pre_von, pre_hon)
+            coords = None
+            if marked_bytes:
+                coords = streamlit_image_coordinates(
+                    Image.open(io.BytesIO(marked_bytes)),
+                    key=f"click_{_download_key}_{pos_mode}",
+                )
+
+            seen_key = f"_coords_seen_{_download_key}_{pos_mode}"
+            if coords and coords != st.session_state.get(seen_key):
+                st.session_state[seen_key] = coords
+                if pos_mode == "Earring":
+                    rx, ry = landmarks["right_ear"]
+                    st.session_state["_fadj_voe"] = max(-60, min(60, int(coords["y"]) - ry - 10))
+                    st.session_state["_fadj_hoe"] = max(-60, min(60, int(coords["x"]) - rx))
+                    st.session_state["_flast_v_off_ear"] = st.session_state.get("v_off_ear", 0)
+                    st.session_state["_flast_h_off_ear"] = st.session_state.get("h_off_ear", 0)
+                else:
+                    nx, ny = landmarks["neck_center"]
+                    st.session_state["_fadj_von"] = max(-60,  min(300, int(coords["y"]) - ny))
+                    st.session_state["_fadj_hon"] = max(-200, min(200, int(coords["x"]) - nx))
+                    st.session_state["_flast_v_off_nec"] = st.session_state.get("v_off_nec", 0)
+                    st.session_state["_flast_h_off_nec"] = st.session_state.get("h_off_nec", 0)
+                # No st.rerun() — offsets updated above; result computed below in the same pass
+
+    # Read effective offsets (may have just been updated by click above)
     voe = st.session_state.get("_fadj_voe", st.session_state.get("v_off_ear", 0))
     hoe = st.session_state.get("_fadj_hoe", st.session_state.get("h_off_ear", 0))
     von = st.session_state.get("_fadj_von", st.session_state.get("v_off_nec", 0))
     hon = st.session_state.get("_fadj_hon", st.session_state.get("h_off_nec", 0))
 
-    result_bytes: bytes | None = None
-
     # ── Flux path (explicit button — never auto-calls) ────────────────────────
     flux_result: bytes | None = None
     if use_flux and _bfl_key():
-        flux_key = _result_session_key()           # uses slider values as cache key
+        flux_key = _result_session_key()
         flux_result = st.session_state.get(flux_key)
 
     # ── Local overlay (instant, always computed) ──────────────────────────────
@@ -510,7 +563,6 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
             st.session_state[res_key] = rb
     local_result = st.session_state.get(res_key)
 
-    # Choose which result to display (Flux wins if available)
     result_bytes = flux_result or local_result
 
     if result_bytes is None:
@@ -564,56 +616,6 @@ def show_result(source_img: Image.Image, _download_key: str = "download_result")
                          use_container_width=True):
                 del st.session_state[flux_key]
                 st.rerun()
-
-    # ── Click-to-position ─────────────────────────────────────────────────────
-    landmarks = _detect_cached(src_bytes)
-    if landmarks:
-        show_repo = st.checkbox(
-            "🎯 Adjust jewellery position by clicking on the photo",
-            key=f"show_repo_{_download_key}",
-        )
-        if show_repo:
-            if cat == "Both":
-                pos_mode = st.radio(
-                    "What to reposition:",
-                    ["Earring", "Necklace"],
-                    horizontal=True,
-                    key=f"pos_mode_{_download_key}",
-                )
-            else:
-                pos_mode = cat
-
-            if pos_mode == "Earring":
-                st.caption("🟡 Click where you want the **earring** to sit — both sides update.")
-            else:
-                st.caption("🔵 Click where you want the **necklace** centre to sit.")
-
-            marked_bytes = _cached_markers(
-                src_bytes, pos_mode, voe, hoe, von, hon,
-            )
-            coords = None
-            if marked_bytes:
-                coords = streamlit_image_coordinates(
-                    Image.open(io.BytesIO(marked_bytes)),
-                    key=f"click_{_download_key}_{pos_mode}",
-                )
-
-            seen_key = f"_coords_seen_{_download_key}_{pos_mode}"
-            if coords and coords != st.session_state.get(seen_key):
-                st.session_state[seen_key] = coords
-                if pos_mode == "Earring":
-                    rx, ry = landmarks["right_ear"]
-                    st.session_state["_fadj_voe"] = max(-60, min(60, int(coords["y"]) - ry - 10))
-                    st.session_state["_fadj_hoe"] = max(-60, min(60, int(coords["x"]) - rx))
-                    st.session_state["_flast_v_off_ear"] = st.session_state.get("v_off_ear", 0)
-                    st.session_state["_flast_h_off_ear"] = st.session_state.get("h_off_ear", 0)
-                else:
-                    nx, ny = landmarks["neck_center"]
-                    st.session_state["_fadj_von"] = max(-60,  min(300, int(coords["y"]) - ny))
-                    st.session_state["_fadj_hon"] = max(-200, min(200, int(coords["x"]) - nx))
-                    st.session_state["_flast_v_off_nec"] = st.session_state.get("v_off_nec", 0)
-                    st.session_state["_flast_h_off_nec"] = st.session_state.get("h_off_nec", 0)
-                st.rerun()   # fragment-scoped — only result panel updates, no page reload
 
     # ── GPT-4o auto recommendation ────────────────────────────────────────────
     st.divider()

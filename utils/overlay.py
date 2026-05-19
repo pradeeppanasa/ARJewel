@@ -121,13 +121,13 @@ def overlay_earring(
         x = ear_lobe[0] - ew // 2 + h_offset
     y = ear_lobe[1] + 10 + v_offset
 
-    # drop shadow — larger blur + offset for 3D depth
+    # soft drop shadow — spread far from edge so it looks natural, not like a black outline
     _r, _g, _b, alpha = earring.split()
-    shadow_alpha = alpha.filter(ImageFilter.GaussianBlur(radius=5))
-    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.65))
+    shadow_alpha = alpha.filter(ImageFilter.GaussianBlur(radius=12))
+    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.22))
     shadow = Image.new("RGBA", earring.size, (0, 0, 0, 0))
     shadow.putalpha(shadow_alpha)
-    base_img = paste_with_alpha(base_img, shadow, (x + 3, y + 3))
+    base_img = paste_with_alpha(base_img, shadow, (x + 7, y + 7))
 
     return paste_with_alpha(base_img, earring, (x, y))
 
@@ -204,12 +204,12 @@ def overlay_necklace(
     x = nx - nw // 2 + h_offset
     y = ny + v_offset
 
-    # drop shadow for depth
+    # soft drop shadow — large blur + offset so it spreads away from edges naturally
     _r, _g, _b, nec_alpha = necklace.split()
-    shadow_alpha = nec_alpha.filter(ImageFilter.GaussianBlur(radius=6))
-    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.60))
+    shadow_alpha = nec_alpha.filter(ImageFilter.GaussianBlur(radius=16))
+    shadow_alpha = shadow_alpha.point(lambda p: int(p * 0.20))
     shadow = Image.new("RGBA", necklace.size, (0, 0, 0, 0))
     shadow.putalpha(shadow_alpha)
-    base_img = paste_with_alpha(base_img, shadow, (x + 4, y + 4))
+    base_img = paste_with_alpha(base_img, shadow, (x + 10, y + 10))
 
     return paste_with_alpha(base_img, necklace, (x, y))

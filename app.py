@@ -146,20 +146,48 @@ html { scroll-behavior: auto !important; }
 .block-container { padding-bottom: 4rem; }
 
 /* ── Jewellery carousel cards ─────────────────────────────────── */
-.jewel-card-selected > div[data-testid="stImage"] img {
-    border-radius: 8px;
-    outline: 3px solid #FFD700;
-    outline-offset: 2px;
-    box-shadow: 0 0 10px rgba(255,215,0,0.55);
+@keyframes jewel-slide {
+    from { opacity: 0.25; transform: translateX(20px); }
+    to   { opacity: 1;    transform: translateX(0); }
 }
-.jewel-card > div[data-testid="stImage"] img {
+
+/* All cards slide in on each page change */
+.jewel-card, .jewel-card-selected {
+    animation: jewel-slide 0.22s ease;
+}
+
+/* Force square thumbnails so every card is the same height */
+.jewel-card > div[data-testid="stImage"] img,
+.jewel-card-selected > div[data-testid="stImage"] img {
+    aspect-ratio: 1 / 1 !important;
+    object-fit: contain !important;
+    width: 100% !important;
+    background: #1e1e1e;
     border-radius: 8px;
-    border: 1px solid #E0E0E0;
+}
+
+/* Selected: gold ring */
+.jewel-card-selected > div[data-testid="stImage"] img {
+    outline: 3px solid #FFD700 !important;
+    outline-offset: 2px;
+    box-shadow: 0 0 14px rgba(255,215,0,0.65);
+}
+
+/* Unselected: subtle border + hover lift */
+.jewel-card > div[data-testid="stImage"] img {
+    border: 1px solid #444;
     transition: transform 0.15s, box-shadow 0.15s;
 }
 .jewel-card > div[data-testid="stImage"] img:hover {
-    transform: scale(1.04);
-    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    transform: scale(1.05);
+    box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+}
+
+/* Arrow nav buttons — tall so they sit level with the images */
+.carousel-nav button[kind="secondary"] {
+    height: 80px !important;
+    font-size: 1.2rem !important;
+    margin-top: 4px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -206,20 +234,15 @@ GALLERY_PAGE_SIZE = 6   # cards visible per carousel page
 with st.sidebar:
     st.title("💍 Jewellery AR")
 
-    # Selection summary — reads from session state set by the gallery above the tabs
-    _cat     = st.session_state.get("active_type", "Earring")
+    # Selection summary
     _sel_ear = st.session_state.get("selected_earring")
     _sel_nec = st.session_state.get("selected_necklace")
-    if _cat in ("Earring", "Both"):
-        if _sel_ear:
-            st.success(f"Earring: {_sel_ear['name']}")
-        else:
-            st.info("No earring selected.")
-    if _cat in ("Necklace", "Both"):
-        if _sel_nec:
-            st.success(f"Necklace: {_sel_nec['name']}")
-        else:
-            st.info("No necklace selected.")
+    if _sel_ear:
+        st.success(f"Earring: {_sel_ear['name']}")
+    if _sel_nec:
+        st.success(f"Necklace: {_sel_nec['name']}")
+    if not _sel_ear and not _sel_nec:
+        st.info("Select jewellery from the gallery.")
 
     st.divider()
     st.subheader("Fine-tune")
@@ -741,41 +764,35 @@ def jewellery_gallery():
         n_pages = max(1, (total + GALLERY_PAGE_SIZE - 1) // GALLERY_PAGE_SIZE)
         page    = max(0, min(st.session_state.get(page_k, 0), n_pages - 1))
 
-        head_col, nav_col = st.columns([5, 2])
-        with head_col:
-            label = "Earrings" if cat_key == "Earring" else "Necklaces"
-            st.markdown(
-                f"**{label}** "
-                f"<span style='color:#888;font-size:0.82em;'>({total} items)</span>",
-                unsafe_allow_html=True,
-            )
-        with nav_col:
-            nc1, nc2, nc3 = st.columns([1, 1, 1])
-            with nc1:
-                if st.button("◀", key=f"prev_{cat_key}", disabled=page == 0,
-                             use_container_width=True):
-                    st.session_state[page_k] = page - 1
-                    st.rerun()
-            with nc2:
-                st.caption(f"{page+1} / {n_pages}")
-            with nc3:
-                if st.button("▶", key=f"next_{cat_key}",
-                             disabled=page >= n_pages - 1, use_container_width=True):
-                    st.session_state[page_k] = page + 1
-                    st.rerun()
+        label = "Earrings" if cat_key == "Earring" else "Necklaces"
+        st.markdown(
+            f"<p style='margin:0 0 6px 0;font-weight:600;'>{label} "
+            f"<span style='color:#888;font-size:0.82em;font-weight:400;'>"
+            f"({total} items · page {page+1}/{n_pages})</span></p>",
+            unsafe_allow_html=True,
+        )
 
-        page   = max(0, min(st.session_state.get(page_k, 0), n_pages - 1))
         slice_ = items[page * GALLERY_PAGE_SIZE : (page + 1) * GALLERY_PAGE_SIZE]
+        selected = st.session_state.get(sel_k)
 
-        if not slice_:
-            st.caption(f"No {cat_key.lower()} assets in assets/jewellery/{cat_key.lower()}s/")
-        else:
-            selected = st.session_state.get(sel_k)
-            cols     = st.columns(GALLERY_PAGE_SIZE)
-            for idx, item in enumerate(slice_):
-                is_sel  = selected is not None and selected["id"] == item["id"]
-                css_cls = "jewel-card-selected" if is_sel else "jewel-card"
-                with cols[idx]:
+        # ── One row: [◀]  img  img  img  img  img  img  [▶] ──────────────────
+        all_cols = st.columns([0.35] + [1] * GALLERY_PAGE_SIZE + [0.35])
+        col_prev, *img_cols, col_next = all_cols
+
+        with col_prev:
+            st.markdown('<div class="carousel-nav">', unsafe_allow_html=True)
+            if st.button("◀", key=f"prev_{cat_key}", disabled=page == 0,
+                         use_container_width=True):
+                st.session_state[page_k] = page - 1
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        for idx, col in enumerate(img_cols):
+            with col:
+                if idx < len(slice_):
+                    item    = slice_[idx]
+                    is_sel  = selected is not None and selected["id"] == item["id"]
+                    css_cls = "jewel-card-selected" if is_sel else "jewel-card"
                     st.markdown(f'<div class="{css_cls}">', unsafe_allow_html=True)
                     st.image(_load_gallery_preview(item["path"]), use_container_width=True)
                     st.markdown("</div>", unsafe_allow_html=True)
@@ -787,7 +804,15 @@ def jewellery_gallery():
                         st.session_state[sel_k] = item
                         st.rerun()
                     name = item["name"]
-                    st.caption(name[:16] + ("…" if len(name) > 16 else ""))
+                    st.caption(name[:15] + ("…" if len(name) > 15 else ""))
+
+        with col_next:
+            st.markdown('<div class="carousel-nav">', unsafe_allow_html=True)
+            if st.button("▶", key=f"next_{cat_key}",
+                         disabled=page >= n_pages - 1, use_container_width=True):
+                st.session_state[page_k] = page + 1
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
         if len(cats) > 1:
             st.divider()
